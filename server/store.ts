@@ -8,6 +8,10 @@ export class DocumentStore {
   private readonly filePath: string;
 
   constructor(filePath = process.env.FORG3_DATA_FILE || defaultStorePath) {
+    if (process.env.NODE_ENV === 'production' && process.env.ALLOW_FILE_STORE_IN_PRODUCTION !== 'true') {
+      throw new Error('Production requires Postgres plus encrypted blob storage. Set ALLOW_FILE_STORE_IN_PRODUCTION=true only for emergency migration tooling.');
+    }
+
     this.filePath = path.resolve(process.cwd(), filePath);
     this.ensureStore();
   }
