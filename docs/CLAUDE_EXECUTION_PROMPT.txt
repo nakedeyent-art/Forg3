@@ -1,0 +1,136 @@
+# TASK: Execute the full Forg3 Sign production-remediation plan
+
+You are working in the repo at /Users/rizzolini/Documents/Forg3 (React/Vite frontend,
+Express API in server/, Capacitor iOS/Android shells). A security + product audit found
+the app is NOT production-ready. Your job is to fix it, phase by phase, in the order
+below. Full context and rationale live in docs/AUDIT_REPORT.md and
+docs/CLAUDE_EXECUTION_HANDOFF.md — read them first.
+
+## GROUND RULES (apply to every task)
+- Work phase by phase, top to bottom. Do NOT start a phase until the previous phase's
+  acceptance checks pass. Track work with a task list.
+- Server is the sole source of truth for identity, entitlement, and the signed PDF.
+  NEVER trust client-supplied ownerEmail or a client-generated signed PDF again.
+- Return 404 (not 403) on ownership mismatch so document ids aren't enumerable.
+- Keep the existing generic 500 handler; never leak internals in errors.
+- Preserve what's already good: the token lifecycle (hash-only, single-use, nulled
+  after signing, expiry) and shape-only input validation.
+- Keep demo auth/billing shortcuts out of production code paths — guard behind
+  NODE_ENV !== 'production' or delete them.
+- After each phase: run `npm run build` and `npm audit`, drive the affected flow in the
+  browser (not just typecheck), and commit on a feature branch. Do not push unless asked.
+- If a task needs a product/legal decision, DO NOT GUESS — record it under
+  "DECISIONS NEEDED" and continue with other tasks.
+
+## PHASE 1 — Server auth & authorization (findings S1-1..S1-4)
+1.1 New server/auth.ts middleware: read `Authorization: Bearer <idToken>`, verify with
+    firebase-admin verifyIdToken, attach req.owner={uid,email}, 401 on missing/invalid.
+    Add a NODE_ENV!=='production' dev-token fallback. Add firebase-admin dep; document
+    server-side service-account env vars in .env.example (NOT VITE_*).
+    ✔ curl /api/documents no token → 401; valid token → 200.
+1.2 Scope document routes to owner (server/index.ts: GET /api/documents :77;
+    GET /api/documents/:id :179; /signed :190; /rotate-link :257; /void :286;
+    POST /api/documents :206). Apply middleware; filter list to req.owner.email; on
+    every :id route load doc then 404 if doc.ownerEmail!==req.owner.email; on create set
+    ownerEmail/ownerName from req.owner, not the body.
+    ✔ Owner A sees only A's docs; A gets 404 on B's id; A cannot void/rotate/download B's.
+1.3 Scope subscription routes (server/index.ts: /api/subscription :81; /checkout :95;
+    /cancel :159; /verify :142). Derive ownerEmail from req.owner; ignore body/query
+    email; cancel only caller's own.
+    ✔ No token → 401; caller cannot read/cancel another email's subscription.
+1.4 Remove demo entitlement grant from prod (server/index.ts:116; src/App.tsx:939 & :943).
+    Guard demo grant behind NODE_ENV!=='production'; make the "Start demo" button and
+    "Store billing ready" pill reflect real state.
+    ✔ With NODE_ENV=production, demo checkout returns 501/403, not an active sub.
+1.5 Client token plumbing (src/lib/auth.ts, src/lib/api.ts): after Firebase sign-in store
+    the ID token and attach Authorization: Bearer on every request() call; refresh on
+    expiry. Fix shared-demo-email tenant collapse (S2-4) by keying dev sessions on uid.
+    ✔ Dashboard loads docs when signed in; sign-out → owner calls 401.
+DONE WHEN: anonymous callers reach nothing owner-scoped; two owners fully isolated;
+build passes; sign in → subscribe(dev) → upload → create link works in browser.
+
+## PHASE 2 — Signed-document integrity (S2-1, S2-2)
+2.1 Move sealing server-side. Port src/lib/pdf.ts:10 sealPdfWithSignature into a server
+    module using pdf-lib. POST /api/signing/:token/sign (server/index.ts:331) must accept
+    ONLY the signature PNG + typed-name confirmation + consent — NOT a finished PDF. Server
+    loads stored original, stamps, computes signedDocumentHash from bytes IT produced.
+    Delete the client signedFileDataUrl trust path. Update src/App.tsx handleSign :718 and
+    src/lib/api.ts signDocument :65 to stop sending a client-sealed PDF.
+    ✔ Signer cannot influence signed bytes beyond the signature image; forged
+      signedFileDataUrl no longer changes the owner's download; stamp+hash still correct.
+2.2 Entitlement policy at signing (server/index.ts:331 & recordSignatureUsage :530).
+    Pick ONE policy (see DECISIONS NEEDED): block signing when owner inactive, OR always
+    bill the completed signature for metered plans. Make charge writes idempotent per
+    documentId (store.ts:65) — back with a DB unique constraint in Phase 3.
+    ✔ A signature after the owner lapses is either blocked or billed — never silently free.
+DONE WHEN: signed artifact is server-generated, hashes verify, sign→download works.
+
+## PHASE 3 — Persistence: DB + encrypted blob storage (S2-3)
+3.1 Replace server/store.ts internals with Postgres (keep DocumentStore method surface if
+    practical). Tables: owners; subscriptions (unique on owner); documents (metadata +
+    blob keys + hashes, NO base64); signature_charges (unique on document_id);
+    signing_tokens (hash, expiry, one-time); audit_events. Row-level updates only.
+    ✔ Two concurrent signature completions both persist; no lost writes.
+3.2 Move PDFs to encrypted object storage (e.g. S3 + SSE-KMS); DB keeps only keys + SHA-256.
+    ✔ DB rows contain no base64 PDF; docs still load/download via authorized endpoint.
+DONE WHEN: app runs on DB/blob store, same behavior, no data/forg3-store.json in prod.
+
+## PHASE 4 — Store billing & receipt verification (S1-4 fully; §5 checklist)
+4.1 Implement /api/subscription/verify (server/index.ts:142, currently stub 501): verify
+    Apple App Store Server API receipts and Google Play Developer API purchase tokens
+    server-side; grant active entitlement only after verification; store provider txn id.
+    ✔ Valid sandbox receipt grants entitlement; invalid rejected.
+4.2 Lifecycle webhooks: handle Apple App Store Server Notifications v2 and Google RTDN for
+    renew/cancel/refund/grace/hold; reconcile into subscriptions; reconcile metered charges
+    against store events; keep idempotent.
+    ✔ Simulated cancel/refund notification updates entitlement state.
+4.3 Per-signature fee compliance — DECISION REQUIRED. The $0.99/signature metered fee is
+    NOT expressible as an auto-renewable subscription and will fail App/Play review as-is.
+    Choose a compliant model (consumable/prepaid credits or approved external billing) with
+    the owner BEFORE implementing. Do not ship the raw metered charge through the stores.
+4.4 Native affordances (iOS/Android Capacitor): StoreKit + Play Billing purchase/restore;
+    Restore Purchases + Manage Subscription UI; show base + per-signature price pre-purchase.
+    ✔ Purchase, restore, manage work in sandbox on device.
+
+## PHASE 5 — Hardening (S3)
+- S3-1 Rate limiting on /checkout, /api/documents, /api/signing/:token + global cap; lower
+  the 28MB body limit (server/index.ts:70) to the real max PDF size.
+- S3-2 Add helmet: strict CSP, X-Content-Type-Options, Referrer-Policy, HSTS; enforce HTTPS
+  at the edge (server/index.ts:381).
+- S3-3/F-1 Add sandbox to signer preview iframe (src/App.tsx:804) or render via PDF.js with
+  scripting off; TEST it actually renders on mobile Safari (data: iframes often fail there).
+- S3-4 Keep CORS allowlist tight once bearer auth is live; no cookies without CSRF defense.
+
+## PHASE 6 — Frontend/mobile UX (F-2..F-5)
+- F-2 Add typed-signature fallback + labels/roles to src/components/SignaturePad.tsx so
+  keyboard/AT users can sign.
+- F-3/F-4 Ensure demo artifacts don't ship; drive billing pill/buttons from real state.
+- F-5 Verify long titles/emails fit in document rows at the 620px breakpoint.
+- Re-test full owner+signer flow on a real iOS device and Android device. Android needs
+  JDK 17 or 21 (host currently JDK 25) — select a compatible JDK before ./gradlew.
+
+## PHASE 7 — Trust & audit features (roadmap, impact order)
+1 Email delivery of signing links + signed copies (product can't deliver a link today).
+2 Tamper-evident audit certificate appended to the signed PDF (event log, hashes, times).
+3 Multi-signer routing with per-signer tokens.
+4 Reusable contacts + templates.
+5 Signer-placed fields (drag signature/initials/date).
+6 (Longer term) PAdES CA-backed cryptographic signatures.
+
+## VERIFICATION CHECKLIST (run before declaring ANY phase complete)
+1 npm run build passes. 2 npm audit --audit-level=high → 0 high/critical.
+3 npx cap sync passes (when native changed). 4 Owner flow: sign in→subscribe→upload→create
+link. 5 Signer flow: open link→draw→confirm name→consent→sign→download. 6 Reused signing
+URL is unavailable. 7 Dashboard Signed count + metered usage count correct. 8 Cross-tenant
+probe: owner B cannot see/act on owner A's docs or subscription. 9 Integrity probe: a
+tampered sign request cannot alter the owner's downloaded PDF.
+
+## DECISIONS NEEDED (do NOT guess — get owner/legal sign-off)
+1 Per-signature fee store model (Phase 4.3): prepaid credits vs. approved external billing.
+2 Entitlement-at-signing policy (Phase 2.2): block-when-inactive vs. always-bill.
+3 Audit-trail scope vs. privacy (S4): app avoids IP/user-agent; legal sets minimum record.
+4 Signature legal weight (7.6): electronic stamp sufficient, or PAdES/CA-backed required?
+5 Data retention windows + KMS choice (Phase 3.2).
+
+Start with Phase 1. Read docs/AUDIT_REPORT.md and docs/CLAUDE_EXECUTION_HANDOFF.md for
+file/line detail on every finding before you touch code.

@@ -1,0 +1,16 @@
+{
+  "name": "Forg3 Sign",
+  "short_name": "Forg3",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f6f7fb",
+  "theme_color": "#176b87",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    }
+  ]
+}
+

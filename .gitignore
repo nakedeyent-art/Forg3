@@ -1,0 +1,16 @@
+node_modules/
+dist/
+dist-server/
+data/
+.env
+.env.local
+.DS_Store
+*.log
+coverage/
+.playwright-cli/
+output/playwright/
+ios/App/Pods/
+ios/App/App.xcworkspace/
+ios/App/build/
+android/.gradle/
+android/app/build/

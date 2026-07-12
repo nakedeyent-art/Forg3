@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Forg3 Sign</string>
+    <string name="title_activity_main">Forg3 Sign</string>
+    <string name="package_name">com.forg3.sign</string>
+    <string name="custom_url_scheme">com.forg3.sign</string>
+</resources>
