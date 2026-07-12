@@ -789,7 +789,7 @@ function SignerScreen({ token }: { token: string }) {
               </div>
               <StatusChip status="sent" />
             </div>
-            <iframe title={document.title} src={fileDataUrl} />
+            <iframe title={document.title} src={fileDataUrl} sandbox="allow-downloads" />
           </section>
 
           <form className="signature-panel" onSubmit={handleSign}>

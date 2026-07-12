@@ -3,6 +3,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import cors from 'cors';
 import express, { type NextFunction, type Request, type Response } from 'express';
+import rateLimit from 'express-rate-limit';
+import helmet from 'helmet';
 import { createDevAuthToken, devAuthEnabled, requireOwner } from './auth.js';
 import { sealPdfWithSignature } from './pdf.js';
 import { DocumentStore } from './store.js';
@@ -23,6 +25,26 @@ const store = new DocumentStore();
 const port = Number(process.env.PORT || 4127);
 const distPath = path.resolve(process.cwd(), 'dist');
 const payPerSignatureFeeCents = clamp(Number(process.env.PAY_PER_SIGNATURE_FEE_CENTS ?? 99), 0, 100000);
+const jsonBodyLimit = process.env.JSON_BODY_LIMIT || '16mb';
+const maxPdfBytes = clamp(Number(process.env.MAX_PDF_BYTES ?? 10 * 1024 * 1024), 1, 50 * 1024 * 1024);
+const globalApiLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 600,
+  standardHeaders: 'draft-7',
+  legacyHeaders: false
+});
+const writeLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 120,
+  standardHeaders: 'draft-7',
+  legacyHeaders: false
+});
+const signingLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 80,
+  standardHeaders: 'draft-7',
+  legacyHeaders: false
+});
 const subscriptionPlans: SubscriptionPlan[] = [
   {
     id: 'forg3_pay_per_signature_annual',
@@ -68,9 +90,30 @@ const subscriptionPlans: SubscriptionPlan[] = [
 ];
 
 app.disable('x-powered-by');
+app.use(
+  helmet({
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'self'"],
+        baseUri: ["'self'"],
+        connectSrc: ["'self'", 'http://127.0.0.1:4127', 'http://localhost:4127'],
+        frameAncestors: ["'none'"],
+        frameSrc: ["'self'", 'data:'],
+        imgSrc: ["'self'", 'data:'],
+        objectSrc: ["'none'"],
+        scriptSrc: ["'self'"],
+        styleSrc: ["'self'"]
+      }
+    },
+    hsts: process.env.NODE_ENV === 'production'
+  })
+);
 app.use(cors({ origin: allowCorsOrigin }));
-app.use(express.json({ limit: '28mb' }));
+app.use(express.json({ limit: jsonBodyLimit }));
 app.use(noStore);
+app.use('/api', globalApiLimiter);
+app.use(['/api/subscription/checkout', '/api/documents'], writeLimiter);
+app.use('/api/signing/:token', signingLimiter);
 
 app.get('/api/health', (_request, response) => {
   response.json({ ok: true, service: 'forg3-sign', time: new Date().toISOString() });
@@ -232,6 +275,11 @@ app.post('/api/documents', requireOwner, (request, response) => {
 
   if (!String(body.fileType).includes('pdf') || !String(body.fileDataUrl).startsWith('data:application/pdf;base64,')) {
     response.status(400).json({ error: 'Only PDF documents are supported in this version.' });
+    return;
+  }
+
+  if (dataUrlByteLength(String(body.fileDataUrl)) > maxPdfBytes) {
+    response.status(413).json({ error: 'PDF exceeds the configured upload size limit.' });
     return;
   }
 
@@ -617,6 +665,12 @@ function sha256DataUrl(dataUrl: string) {
   const commaIndex = dataUrl.indexOf(',');
   const base64 = commaIndex >= 0 ? dataUrl.slice(commaIndex + 1) : dataUrl;
   return crypto.createHash('sha256').update(Buffer.from(base64, 'base64')).digest('hex');
+}
+
+function dataUrlByteLength(dataUrl: string) {
+  const commaIndex = dataUrl.indexOf(',');
+  const base64 = commaIndex >= 0 ? dataUrl.slice(commaIndex + 1) : dataUrl;
+  return Buffer.byteLength(base64, 'base64');
 }
 
 function isExpired(document: SigningDocument) {
