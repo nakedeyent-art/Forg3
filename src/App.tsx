@@ -443,10 +443,17 @@ function Dashboard() {
             </span>
           </div>
 
-          {!firebaseConfigured() && (
+          {!firebaseConfigured() && import.meta.env.DEV && (
             <div className="inline-note">
               <AlertCircle size={16} />
               Google and Apple use local demo sessions until Firebase values are added.
+            </div>
+          )}
+
+          {!firebaseConfigured() && import.meta.env.PROD && (
+            <div className="inline-note">
+              <AlertCircle size={16} />
+              Firebase authentication must be configured before release.
             </div>
           )}
         </section>

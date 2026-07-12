@@ -706,6 +706,37 @@ input:focus {
   text-align: right;
 }
 
+.signature-box {
+  display: grid;
+  gap: 10px;
+}
+
+.signature-mode {
+  width: fit-content;
+  display: inline-grid;
+  grid-template-columns: repeat(2, minmax(74px, 1fr));
+  gap: 3px;
+  padding: 3px;
+  border: 1px solid #d6e1e5;
+  border-radius: 8px;
+  background: #f5f8f9;
+}
+
+.signature-mode button {
+  min-height: 32px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  color: #4b5a64;
+  background: transparent;
+  font-size: 0.82rem;
+  font-weight: 800;
+}
+
+.signature-mode button.active {
+  color: #ffffff;
+  background: #176b87;
+}
+
 .signature-pad {
   position: relative;
   width: 100%;
@@ -735,6 +766,30 @@ input:focus {
   top: 8px;
   right: 8px;
   background: #f3f6f7;
+}
+
+.typed-signature {
+  min-height: 210px;
+  display: grid;
+  align-content: center;
+  gap: 10px;
+  padding: 18px;
+  border: 1px solid #ccd8dc;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.typed-signature span {
+  color: #465660;
+  font-size: 0.84rem;
+  font-weight: 800;
+}
+
+.typed-signature input {
+  min-height: 58px;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 1.45rem;
+  font-style: italic;
 }
 
 .consent-row {

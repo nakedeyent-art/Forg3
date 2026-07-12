@@ -33,3 +33,9 @@ Decision needed: confirm whether electronic stamping is sufficient for target ma
 Production needs a database, encrypted blob storage, retention windows, and key management.
 
 Decision needed: select Postgres host, object storage provider, KMS, and retention policy.
+
+## Mobile PDF Preview
+
+The iframe is sandboxed, but Chromium blocked the sandboxed `data:` PDF preview during mobile-width verification. Mobile Safari still needs real-device testing.
+
+Decision needed: approve a PDF.js rendering implementation with scripting disabled, or approve a different preview/download UX for signers.

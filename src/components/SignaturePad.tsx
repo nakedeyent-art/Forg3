@@ -1,4 +1,4 @@
-import { type PointerEvent, useEffect, useRef } from 'react';
+import { type ChangeEvent, type PointerEvent, useEffect, useRef, useState } from 'react';
 import { RotateCcw } from 'lucide-react';
 
 interface SignaturePadProps {
@@ -9,6 +9,8 @@ export function SignaturePad({ onChange }: SignaturePadProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const drawingRef = useRef(false);
   const hasInkRef = useRef(false);
+  const [mode, setMode] = useState<'draw' | 'type'>('draw');
+  const [typedSignature, setTypedSignature] = useState('');
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -104,6 +106,10 @@ export function SignaturePad({ onChange }: SignaturePadProps) {
     const canvas = canvasRef.current;
     const context = canvas?.getContext('2d');
 
+    hasInkRef.current = false;
+    setTypedSignature('');
+    onChange(null);
+
     if (!canvas || !context) {
       return;
     }
@@ -111,24 +117,75 @@ export function SignaturePad({ onChange }: SignaturePadProps) {
     const rect = canvas.getBoundingClientRect();
     context.fillStyle = '#ffffff';
     context.fillRect(0, 0, rect.width, rect.height);
-    hasInkRef.current = false;
-    onChange(null);
+  };
+
+  const changeMode = (nextMode: 'draw' | 'type') => {
+    setMode(nextMode);
+    clear();
+  };
+
+  const updateTypedSignature = (event: ChangeEvent<HTMLInputElement>) => {
+    const value = event.target.value;
+    setTypedSignature(value);
+
+    if (!value.trim()) {
+      onChange(null);
+      return;
+    }
+
+    onChange(createTypedSignatureDataUrl(value.trim()));
   };
 
   return (
-    <div className="signature-pad">
-      <canvas
-        ref={canvasRef}
-        aria-label="Signature pad"
-        onPointerDown={startDrawing}
-        onPointerMove={draw}
-        onPointerUp={stopDrawing}
-        onPointerCancel={stopDrawing}
-        onLostPointerCapture={stopDrawing}
-      />
-      <button className="icon-button clear-button" type="button" onClick={clear} title="Clear signature">
-        <RotateCcw size={17} />
-      </button>
+    <div className="signature-box">
+      <div className="signature-mode" role="tablist" aria-label="Signature input mode">
+        <button
+          type="button"
+          role="tab"
+          aria-selected={mode === 'draw'}
+          className={mode === 'draw' ? 'active' : ''}
+          onClick={() => changeMode('draw')}
+        >
+          Draw
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={mode === 'type'}
+          className={mode === 'type' ? 'active' : ''}
+          onClick={() => changeMode('type')}
+        >
+          Type
+        </button>
+      </div>
+
+      {mode === 'draw' ? (
+        <div className="signature-pad">
+          <canvas
+            ref={canvasRef}
+            role="img"
+            aria-label="Drawn signature input"
+            onPointerDown={startDrawing}
+            onPointerMove={draw}
+            onPointerUp={stopDrawing}
+            onPointerCancel={stopDrawing}
+            onLostPointerCapture={stopDrawing}
+          />
+          <button className="icon-button clear-button" type="button" onClick={clear} title="Clear signature">
+            <RotateCcw size={17} />
+          </button>
+        </div>
+      ) : (
+        <label className="typed-signature">
+          <span>Typed signature</span>
+          <input
+            value={typedSignature}
+            onChange={updateTypedSignature}
+            placeholder="Type your signature"
+            autoComplete="name"
+          />
+        </label>
+      )}
     </div>
   );
 }
@@ -139,4 +196,34 @@ function getPoint(canvas: HTMLCanvasElement, event: PointerEvent<HTMLCanvasEleme
     x: event.clientX - rect.left,
     y: event.clientY - rect.top
   };
+}
+
+function createTypedSignatureDataUrl(value: string) {
+  const canvas = document.createElement('canvas');
+  canvas.width = 720;
+  canvas.height = 240;
+  const context = canvas.getContext('2d');
+
+  if (!context) {
+    return null;
+  }
+
+  context.fillStyle = '#ffffff';
+  context.fillRect(0, 0, canvas.width, canvas.height);
+  context.strokeStyle = '#101820';
+  context.lineWidth = 2;
+  context.beginPath();
+  context.moveTo(64, 176);
+  context.lineTo(656, 176);
+  context.stroke();
+  context.fillStyle = '#101820';
+  context.font = 'italic 58px Georgia, serif';
+  context.textBaseline = 'middle';
+  context.fillText(fitText(value, 28), 72, 126, 576);
+
+  return canvas.toDataURL('image/png');
+}
+
+function fitText(value: string, maxLength: number) {
+  return value.length > maxLength ? `${value.slice(0, maxLength - 3)}...` : value;
 }
