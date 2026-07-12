@@ -34,7 +34,7 @@ import {
   voidDocument
 } from './lib/api';
 import { clearStoredSession, firebaseConfigured, getStoredSession, signIn } from './lib/auth';
-import { downloadDataUrl, fileToDataUrl, sealPdfWithSignature } from './lib/pdf';
+import { downloadDataUrl, fileToDataUrl } from './lib/pdf';
 import type {
   AuthSession,
   DocumentSummary,
@@ -723,17 +723,8 @@ function SignerScreen({ token }: { token: string }) {
     setMessage('');
 
     try {
-      const signedFileDataUrl = await sealPdfWithSignature({
-        fileDataUrl,
-        signatureDataUrl,
-        title: document.title,
-        signerName: document.signerName,
-        signerEmail: document.signerEmail,
-        documentHash: document.documentHash
-      });
       const result = await signDocument(token, {
         signatureDataUrl,
-        signedFileDataUrl,
         signerNameConfirmation,
         consentText: `${document.signerName} accepted electronic signature consent at ${new Date().toISOString()}`
       });

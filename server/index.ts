@@ -4,6 +4,7 @@ import path from 'node:path';
 import cors from 'cors';
 import express, { type NextFunction, type Request, type Response } from 'express';
 import { createDevAuthToken, devAuthEnabled, requireOwner } from './auth.js';
+import { sealPdfWithSignature } from './pdf.js';
 import { DocumentStore } from './store.js';
 import type {
   AccountSubscription,
@@ -343,22 +344,16 @@ app.get('/api/signing/:token', (request, response) => {
   });
 });
 
-app.post('/api/signing/:token/sign', (request, response) => {
+app.post('/api/signing/:token/sign', async (request, response, next) => {
   const document = getValidDocumentForToken(request.params.token, response);
 
   if (!document) {
     return;
   }
 
-  const signedFileDataUrl = String(request.body?.signedFileDataUrl || '');
   const signatureDataUrl = String(request.body?.signatureDataUrl || '');
   const signerNameConfirmation = String(request.body?.signerNameConfirmation || '').trim();
   const consentText = String(request.body?.consentText || '');
-
-  if (!signedFileDataUrl.startsWith('data:application/pdf;base64,')) {
-    response.status(400).json({ error: 'A signed PDF payload is required.' });
-    return;
-  }
 
   if (!signatureDataUrl.startsWith('data:image/png;base64,')) {
     response.status(400).json({ error: 'A PNG signature image is required.' });
@@ -371,26 +366,45 @@ app.post('/api/signing/:token/sign', (request, response) => {
   }
 
   const signedAt = new Date().toISOString();
-  const next = store.update(document.id, (current) => ({
-    ...current,
-    status: 'signed',
-    signedAt,
-    signedFileDataUrl,
-    signatureDataUrl,
-    signerNameConfirmation,
-    signedDocumentHash: sha256DataUrl(signedFileDataUrl),
-    consentText,
-    tokenHash: null
-  }));
 
-  recordSignatureUsage(next!);
+  if (!canCompleteSignature(document, response)) {
+    return;
+  }
 
-  response.json({
-    document: toSummary(next!),
-    fileName: signedFileName(document.fileName),
-    signedFileDataUrl,
-    signedDocumentHash: next!.signedDocumentHash
-  });
+  try {
+    const signedFileDataUrl = await sealPdfWithSignature({
+      fileDataUrl: document.fileDataUrl,
+      signatureDataUrl,
+      title: document.title,
+      signerName: document.signerName,
+      signerEmail: document.signerEmail,
+      documentHash: document.documentHash,
+      signedAt
+    });
+    const signedDocumentHash = sha256DataUrl(signedFileDataUrl);
+    const signedDocument = store.update(document.id, (current) => ({
+      ...current,
+      status: 'signed',
+      signedAt,
+      signedFileDataUrl,
+      signatureDataUrl,
+      signerNameConfirmation,
+      signedDocumentHash,
+      consentText,
+      tokenHash: null
+    }));
+
+    recordSignatureUsage(signedDocument!);
+
+    response.json({
+      document: toSummary(signedDocument!),
+      fileName: signedFileName(document.fileName),
+      signedFileDataUrl,
+      signedDocumentHash
+    });
+  } catch (error) {
+    next(error);
+  }
 });
 
 if (fs.existsSync(path.join(distPath, 'index.html'))) {
@@ -546,7 +560,11 @@ function recordSignatureUsage(document: SigningDocument) {
   const entitlement = getSubscriptionEntitlement(document.ownerEmail);
   const plan = entitlement.plan;
 
-  if (!entitlement.active || !plan || plan.billingModel !== 'metered') {
+  if (!plan || plan.billingModel !== 'metered') {
+    return;
+  }
+
+  if (!entitlement.active && getSigningEntitlementPolicy() !== 'bill_metered') {
     return;
   }
 
@@ -562,6 +580,25 @@ function recordSignatureUsage(document: SigningDocument) {
     status: amountCents > 0 ? 'metered' : 'waived',
     createdAt: document.signedAt || new Date().toISOString()
   });
+}
+
+function canCompleteSignature(document: SigningDocument, response: Response) {
+  const entitlement = getSubscriptionEntitlement(document.ownerEmail);
+
+  if (entitlement.active) {
+    return true;
+  }
+
+  if (getSigningEntitlementPolicy() === 'bill_metered' && entitlement.plan?.billingModel === 'metered') {
+    return true;
+  }
+
+  response.status(402).json({ error: 'The document owner subscription is not active.' });
+  return false;
+}
+
+function getSigningEntitlementPolicy() {
+  return process.env.SIGNING_ENTITLEMENT_POLICY === 'bill_metered' ? 'bill_metered' : 'block_when_inactive';
 }
 
 function getPlanRenewalDays(planId: PlanId) {

@@ -64,7 +64,6 @@ export async function signDocument(
   token: string,
   payload: {
     signatureDataUrl: string;
-    signedFileDataUrl: string;
     signerNameConfirmation: string;
     consentText: string;
   }
