@@ -19,3 +19,4 @@ android/local.properties
 output/
 *.tmp
 * 2.*
+.deploy/
