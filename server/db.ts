@@ -48,7 +48,7 @@ function resolveSsl(connectionString: string) {
 
   // Default: local/plain connections stay plain, everything else uses TLS
   // without CA pinning (matches most managed Postgres providers).
-  if (/localhost|127\.0\.0\.1|@db[:/]/.test(connectionString)) {
+  if (/localhost|127\.0\.0\.1|@db[:/]|\/cloudsql\//.test(connectionString)) {
     return undefined;
   }
 
