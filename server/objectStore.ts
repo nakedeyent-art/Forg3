@@ -1,6 +1,8 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
+import type pg from 'pg';
+import { getDatabasePool } from './db.js';
 
 const defaultObjectRoot = path.join(process.cwd(), 'data', 'objects');
 const encryptionMagic = Buffer.from('FORG3ENC1');
@@ -8,31 +10,67 @@ const encryptionMagic = Buffer.from('FORG3ENC1');
 export class ObjectStore {
   private readonly rootPath: string;
   private readonly encryptionKey: Buffer | null;
+  private readonly pool: pg.Pool | null;
 
   constructor(rootPath = process.env.FORG3_OBJECT_STORE_PATH || defaultObjectRoot) {
+    this.pool = getDatabasePool();
     this.rootPath = path.resolve(process.cwd(), rootPath);
     this.encryptionKey = loadEncryptionKey();
 
     if (process.env.NODE_ENV === 'production' && !this.encryptionKey && process.env.ALLOW_PLAINTEXT_OBJECTS_IN_PRODUCTION !== 'true') {
       throw new Error('Production object storage requires FORG3_OBJECT_ENCRYPTION_KEY (32 bytes, hex or base64).');
     }
+  }
+
+  async init() {
+    if (this.pool) {
+      await this.pool.query(
+        'CREATE TABLE IF NOT EXISTS forg3_objects (key text PRIMARY KEY, data bytea NOT NULL, created_at timestamptz NOT NULL DEFAULT now())'
+      );
+      return;
+    }
 
     fs.mkdirSync(this.rootPath, { recursive: true });
   }
 
-  putDataUrl(ownerEmail: string, documentId: string, kind: 'original' | 'signed', dataUrl: string) {
-    const key = path.join(safeSegment(ownerEmail), safeSegment(documentId), `${kind}.dataurl`);
+  async putDataUrl(ownerEmail: string, documentId: string, kind: 'original' | 'signed', dataUrl: string) {
+    const key = `${safeSegment(ownerEmail)}/${safeSegment(documentId)}/${kind}.dataurl`;
+    const sealed = this.seal(Buffer.from(dataUrl, 'utf8'));
+
+    if (this.pool) {
+      await this.pool.query(
+        'INSERT INTO forg3_objects (key, data) VALUES ($1, $2) ON CONFLICT (key) DO UPDATE SET data = EXCLUDED.data',
+        [key, sealed]
+      );
+      return key;
+    }
+
     const absolutePath = this.resolveKey(key);
     fs.mkdirSync(path.dirname(absolutePath), { recursive: true });
-    fs.writeFileSync(absolutePath, this.seal(Buffer.from(dataUrl, 'utf8')));
+    fs.writeFileSync(absolutePath, sealed);
     return key;
   }
 
-  getDataUrl(key: string) {
+  async getDataUrl(key: string) {
+    if (this.pool) {
+      const result = await this.pool.query('SELECT data FROM forg3_objects WHERE key = $1', [key]);
+
+      if (!result.rows[0]) {
+        throw new Error('Stored object not found.');
+      }
+
+      return this.open(result.rows[0].data as Buffer).toString('utf8');
+    }
+
     return this.open(fs.readFileSync(this.resolveKey(key))).toString('utf8');
   }
 
-  deleteOwnerObjects(ownerEmail: string) {
+  async deleteOwnerObjects(ownerEmail: string) {
+    if (this.pool) {
+      await this.pool.query('DELETE FROM forg3_objects WHERE key LIKE $1', [`${safeSegment(ownerEmail)}/%`]);
+      return;
+    }
+
     const ownerPath = this.resolveKey(safeSegment(ownerEmail));
     if (fs.existsSync(ownerPath)) {
       fs.rmSync(ownerPath, { recursive: true, force: true });
@@ -41,10 +79,8 @@ export class ObjectStore {
 
   status() {
     return {
-      mode: (process.env.FORG3_OBJECT_STORE_PROVIDER ? 'provider' : 'local_object_store') as
-        | 'provider'
-        | 'local_object_store',
-      configured: Boolean(process.env.FORG3_OBJECT_STORE_PROVIDER) || fs.existsSync(this.rootPath),
+      mode: (this.pool ? 'postgres' : 'local_object_store') as 'postgres' | 'local_object_store' | 'provider',
+      configured: Boolean(this.pool) || fs.existsSync(this.rootPath),
       encryptedAtRest: Boolean(this.encryptionKey)
     };
   }

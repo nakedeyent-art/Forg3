@@ -28,8 +28,52 @@ jobs:
       - name: Build web + server
         run: npm run build
 
-      - name: Backend smoke tests
+      - name: Backend smoke tests (file store)
         run: npm run smoke
 
       - name: Dependency audit (high severity)
         run: npm audit --audit-level=high --omit=dev
+
+  smoke-postgres:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: forg3_ci
+          POSTGRES_USER: forg3
+          POSTGRES_PASSWORD: forg3_ci_password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U forg3 -d forg3_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build server
+        run: npx tsc -p tsconfig.server.json
+
+      - name: Backend smoke tests (Postgres store)
+        run: npm run smoke
+        env:
+          DATABASE_URL: postgres://forg3:forg3_ci_password@127.0.0.1:5432/forg3_ci
+          DATABASE_SSL: disable
+
+  docker-image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build production image
+        run: docker build -t forg3-sign:ci .

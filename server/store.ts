@@ -1,6 +1,8 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
+import type pg from 'pg';
+import { getDatabasePool } from './db.js';
 import type {
   AccountSubscription,
   AuditEvent,
@@ -21,14 +23,45 @@ const defaultStorePath = path.join(process.cwd(), 'data', 'forg3-store.json');
 
 export class DocumentStore {
   private readonly filePath: string;
+  private readonly pool: pg.Pool | null;
+  private cache: StoreShape | null = null;
+  private flushChain: Promise<void> = Promise.resolve();
 
   constructor(filePath = process.env.FORG3_DATA_FILE || defaultStorePath) {
-    if (process.env.NODE_ENV === 'production' && process.env.ALLOW_FILE_STORE_IN_PRODUCTION !== 'true') {
-      throw new Error('Production requires Postgres plus encrypted blob storage. Set ALLOW_FILE_STORE_IN_PRODUCTION=true only for emergency migration tooling.');
+    this.pool = getDatabasePool();
+
+    if (!this.pool && process.env.NODE_ENV === 'production' && process.env.ALLOW_FILE_STORE_IN_PRODUCTION !== 'true') {
+      throw new Error('Production requires DATABASE_URL (Postgres). Set ALLOW_FILE_STORE_IN_PRODUCTION=true only for emergency migration tooling.');
     }
 
     this.filePath = path.resolve(process.cwd(), filePath);
-    this.ensureStore();
+  }
+
+  async init() {
+    if (!this.pool) {
+      this.ensureStore();
+      return;
+    }
+
+    await this.pool.query(
+      'CREATE TABLE IF NOT EXISTS forg3_store (id integer PRIMARY KEY, data jsonb NOT NULL, updated_at timestamptz NOT NULL DEFAULT now())'
+    );
+    const result = await this.pool.query('SELECT data FROM forg3_store WHERE id = 1');
+
+    if (result.rows[0]) {
+      this.cache = this.normalize(result.rows[0].data as Partial<StoreShape>);
+      return;
+    }
+
+    this.cache = this.normalize({});
+    await this.pool.query('INSERT INTO forg3_store (id, data) VALUES (1, $1) ON CONFLICT (id) DO NOTHING', [
+      JSON.stringify(this.cache)
+    ]);
+  }
+
+  // Awaits every queued Postgres write. Call before process exit.
+  async flush() {
+    await this.flushChain;
   }
 
   all(): SigningDocument[] {
@@ -502,8 +535,46 @@ export class DocumentStore {
   }
 
   private read(): StoreShape {
+    if (this.pool) {
+      if (!this.cache) {
+        throw new Error('DocumentStore.init() must complete before use.');
+      }
+
+      return this.cache;
+    }
+
     const raw = fs.readFileSync(this.filePath, 'utf8');
-    const store = JSON.parse(raw) as Partial<StoreShape>;
+    return this.normalize(JSON.parse(raw) as Partial<StoreShape>);
+  }
+
+  private write(store: StoreShape) {
+    if (this.pool) {
+      this.cache = store;
+      this.scheduleFlush();
+      return;
+    }
+
+    const tempPath = `${this.filePath}.tmp`;
+    fs.writeFileSync(tempPath, JSON.stringify(store, null, 2));
+    fs.renameSync(tempPath, this.filePath);
+  }
+
+  private scheduleFlush() {
+    // Serialized write-through: each queued flush persists the latest cache
+    // snapshot, so bursts coalesce into ordered UPDATEs.
+    this.flushChain = this.flushChain
+      .then(() =>
+        this.pool!.query('UPDATE forg3_store SET data = $1, updated_at = now() WHERE id = 1', [
+          JSON.stringify(this.cache)
+        ])
+      )
+      .then(() => undefined)
+      .catch((error) => {
+        console.error('Postgres store flush failed:', error instanceof Error ? error.message : error);
+      });
+  }
+
+  private normalize(store: Partial<StoreShape>): StoreShape {
     return {
       documents: store.documents || [],
       subscriptions: store.subscriptions || [],
@@ -517,12 +588,6 @@ export class DocumentStore {
       totpEnrollments: store.totpEnrollments || [],
       auditEvents: store.auditEvents || []
     };
-  }
-
-  private write(store: StoreShape) {
-    const tempPath = `${this.filePath}.tmp`;
-    fs.writeFileSync(tempPath, JSON.stringify(store, null, 2));
-    fs.renameSync(tempPath, this.filePath);
   }
 
   private touchTrustedDevice(ownerEmail: string, deviceIdHash: string) {

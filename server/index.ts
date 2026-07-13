@@ -15,6 +15,7 @@ import {
   requireOwner,
   requirePrimaryOwner
 } from './auth.js';
+import { closeDatabasePool } from './db.js';
 import { ObjectStore } from './objectStore.js';
 import { sealPdfWithSignatures } from './pdf.js';
 import { DocumentStore } from './store.js';
@@ -41,10 +42,14 @@ import type {
   SubscriptionUsageSummary
 } from './types.js';
 
+loadRuntimeEnv();
+assertProductionReadiness();
+
 const app = express();
 const store = new DocumentStore();
 const objectStore = new ObjectStore();
 const port = Number(process.env.PORT || 4127);
+const host = process.env.HOST || (process.env.NODE_ENV === 'production' ? '0.0.0.0' : '127.0.0.1');
 const distPath = path.resolve(process.cwd(), 'dist');
 const payPerSignatureFeeCents = clamp(Number(process.env.PAY_PER_SIGNATURE_FEE_CENTS ?? 99), 0, 100000);
 const jsonBodyLimit = process.env.JSON_BODY_LIMIT || '16mb';
@@ -167,12 +172,13 @@ interface MicrosoftGraphEmailConfig {
   useFromAlias: boolean;
 }
 
-loadRuntimeEnv();
-assertSecurityRuntimeConfig();
 configureDeviceTrustVerifier((owner, request) => isTrustedRequestDevice(owner.email, request));
 configureSessionVerifier((ownerEmail, sessionId) => store.isSessionActive(ownerEmail, sessionId));
 
 app.disable('x-powered-by');
+// Behind a reverse proxy / load balancer the client IP arrives in
+// X-Forwarded-For; rate limits are per-IP so this must match the deployment.
+app.set('trust proxy', clamp(Number(process.env.TRUST_PROXY_HOPS ?? (process.env.NODE_ENV === 'production' ? 1 : 0)), 0, 10));
 app.use(
   helmet({
     contentSecurityPolicy: {
@@ -747,7 +753,7 @@ app.get('/api/account/export', requireOwner, (request, response) => {
   });
 });
 
-app.post('/api/account/delete', requireOwner, (request, response) => {
+app.post('/api/account/delete', requireOwner, async (request, response) => {
   const owner = request.owner!;
   const confirmEmail = normalizeEmailAddress(String(request.body?.confirmEmail || ''));
 
@@ -757,7 +763,7 @@ app.post('/api/account/delete', requireOwner, (request, response) => {
   }
 
   const removed = store.deleteOwnerData(owner.email);
-  objectStore.deleteOwnerObjects(owner.email);
+  await objectStore.deleteOwnerObjects(owner.email);
 
   response.json({ deleted: true, documentsRemoved: removed.documents.length });
 });
@@ -1033,7 +1039,7 @@ app.post('/api/company/members', requireOwner, (request, response) => {
   response.status(201).json({ company: nextCompany });
 });
 
-app.get('/api/documents/:id', requireOwner, (request, response) => {
+app.get('/api/documents/:id', requireOwner, async (request, response) => {
   const document = store.get(String(request.params.id));
 
   if (!document || !sameEmail(document.ownerEmail, request.owner!.email)) {
@@ -1041,10 +1047,10 @@ app.get('/api/documents/:id', requireOwner, (request, response) => {
     return;
   }
 
-  response.json({ document: toSummary(document), fileDataUrl: readOriginalFileDataUrl(document) });
+  response.json({ document: toSummary(document), fileDataUrl: await readOriginalFileDataUrl(document) });
 });
 
-app.get('/api/documents/:id/signed', requireOwner, (request, response) => {
+app.get('/api/documents/:id/signed', requireOwner, async (request, response) => {
   const document = store.get(String(request.params.id));
 
   if (
@@ -1058,7 +1064,7 @@ app.get('/api/documents/:id/signed', requireOwner, (request, response) => {
 
   response.json({
     fileName: signedFileName(document.fileName),
-    signedFileDataUrl: readSignedFileDataUrl(document),
+    signedFileDataUrl: await readSignedFileDataUrl(document),
     signedDocumentHash: document.signedDocumentHash,
     signedAt: document.signedAt
   });
@@ -1145,7 +1151,7 @@ app.post('/api/documents', requireOwner, async (request, response) => {
       token
     };
   });
-  const fileObjectKey = objectStore.putDataUrl(owner.email, documentId, 'original', String(body.fileDataUrl));
+  const fileObjectKey = await objectStore.putDataUrl(owner.email, documentId, 'original', String(body.fileDataUrl));
   const document: SigningDocument = {
     id: documentId,
     title: String(body.title).trim(),
@@ -1363,7 +1369,7 @@ app.post('/api/documents/:id/void', requireOwner, (request, response) => {
   response.json({ document: toSummary(next!) });
 });
 
-app.get('/api/signing/:token', requireOwner, (request, response) => {
+app.get('/api/signing/:token', requireOwner, async (request, response) => {
   const tokenContext = getValidDocumentForToken(String(request.params.token), response);
 
   if (!tokenContext) {
@@ -1390,11 +1396,11 @@ app.get('/api/signing/:token', requireOwner, (request, response) => {
       expiresAt: signer.expiresAt,
       identityVerificationRequired: Boolean(document.identityVerificationRequired)
     },
-    fileDataUrl: readOriginalFileDataUrl(document)
+    fileDataUrl: await readOriginalFileDataUrl(document)
   });
 });
 
-app.get('/api/signer/documents/:documentId/:signerId', requireOwner, (request, response) => {
+app.get('/api/signer/documents/:documentId/:signerId', requireOwner, async (request, response) => {
   const signerContext = getValidDocumentForAssignedSigner(
     String(request.params.documentId),
     String(request.params.signerId),
@@ -1419,7 +1425,7 @@ app.get('/api/signer/documents/:documentId/:signerId', requireOwner, (request, r
 
   response.json({
     document: toPublicSigningDocument(document, signer),
-    fileDataUrl: readOriginalFileDataUrl(document)
+    fileDataUrl: await readOriginalFileDataUrl(document)
   });
 });
 
@@ -1541,7 +1547,7 @@ async function completeSignerSignature(
 
     const completedSigners = getDocumentSigners(signedDocument!);
     const signedFileDataUrl = await sealPdfWithSignatures({
-      fileDataUrl: readOriginalFileDataUrl(document),
+      fileDataUrl: await readOriginalFileDataUrl(document),
       title: document.title,
       documentHash: document.documentHash,
       signatureField: document.signatureField,
@@ -1558,7 +1564,7 @@ async function completeSignerSignature(
       }))
     });
     const signedDocumentHash = sha256DataUrl(signedFileDataUrl);
-    const signedFileObjectKey = objectStore.putDataUrl(document.ownerEmail, document.id, 'signed', signedFileDataUrl);
+    const signedFileObjectKey = await objectStore.putDataUrl(document.ownerEmail, document.id, 'signed', signedFileDataUrl);
     const finalDocument = store.update(document.id, (current) => ({
       ...current,
       status: 'signed',
@@ -1608,9 +1614,57 @@ app.use((error: Error, _request: Request, response: Response, _next: NextFunctio
   response.status(500).json({ error: 'Unexpected server error.' });
 });
 
-app.listen(port, '127.0.0.1', () => {
-  console.log(`Forg3 Sign API listening at http://127.0.0.1:${port}`);
-});
+let httpServer: ReturnType<typeof app.listen> | undefined;
+let shuttingDown = false;
+
+void (async () => {
+  try {
+    await store.init();
+    await objectStore.init();
+  } catch (error) {
+    console.error('Forg3 Sign startup failed:', error instanceof Error ? error.message : error);
+    process.exit(1);
+  }
+
+  httpServer = app.listen(port, host, () => {
+    const storage = objectStore.status();
+    console.log(
+      `Forg3 Sign API listening at http://${host}:${port} ` +
+        `(storage: ${storage.mode}, encrypted at rest: ${storage.encryptedAtRest ? 'yes' : 'no'})`
+    );
+  });
+})();
+
+process.on('SIGTERM', () => void shutdown('SIGTERM'));
+process.on('SIGINT', () => void shutdown('SIGINT'));
+
+async function shutdown(signal: string) {
+  if (shuttingDown) {
+    return;
+  }
+
+  shuttingDown = true;
+  console.log(`${signal} received; draining connections and flushing storage.`);
+  setTimeout(() => process.exit(0), 8000).unref();
+
+  await new Promise<void>((resolve) => {
+    if (!httpServer) {
+      resolve();
+      return;
+    }
+
+    httpServer.close(() => resolve());
+  });
+
+  try {
+    await store.flush();
+    await closeDatabasePool();
+  } catch (error) {
+    console.error('Shutdown flush failed:', error instanceof Error ? error.message : error);
+  }
+
+  process.exit(0);
+}
 
 function noStore(_request: Request, response: Response, next: NextFunction) {
   response.setHeader('Cache-Control', 'no-store');
@@ -1814,7 +1868,7 @@ function getDocumentSigners(document: SigningDocument): DocumentSigner[] {
   ];
 }
 
-function readOriginalFileDataUrl(document: SigningDocument) {
+async function readOriginalFileDataUrl(document: SigningDocument) {
   if (document.fileObjectKey) {
     return objectStore.getDataUrl(document.fileObjectKey);
   }
@@ -1826,7 +1880,7 @@ function readOriginalFileDataUrl(document: SigningDocument) {
   throw new Error('Original PDF object is missing.');
 }
 
-function readSignedFileDataUrl(document: SigningDocument) {
+async function readSignedFileDataUrl(document: SigningDocument) {
   if (document.signedFileObjectKey) {
     return objectStore.getDataUrl(document.signedFileObjectKey);
   }
@@ -2661,17 +2715,41 @@ function isEmailDeliveryConfigured(provider = normalizeProviderName(process.env.
   return false;
 }
 
-function assertSecurityRuntimeConfig() {
-  if (process.env.NODE_ENV !== 'production' || !isDeviceMfaRequired()) {
+function assertProductionReadiness() {
+  if (process.env.NODE_ENV !== 'production') {
     return;
   }
 
-  if (!process.env.DEVICE_TRUST_SECRET) {
-    throw new Error('Production device 2FA requires DEVICE_TRUST_SECRET.');
+  const problems: string[] = [];
+
+  if (!process.env.APP_AUTH_SECRET) {
+    problems.push('APP_AUTH_SECRET — strong random secret that signs login tokens.');
+  }
+
+  if (isDeviceMfaRequired() && !process.env.DEVICE_TRUST_SECRET) {
+    problems.push('DEVICE_TRUST_SECRET — strong random secret for device two-factor hashes.');
   }
 
   if (!isEmailDeliveryConfigured()) {
-    throw new Error('Production device 2FA requires a configured email provider.');
+    problems.push('EMAIL_PROVIDER — a working microsoft_graph or resend configuration is required to deliver login codes and signing links.');
+  }
+
+  if (!process.env.DATABASE_URL && process.env.ALLOW_FILE_STORE_IN_PRODUCTION !== 'true') {
+    problems.push('DATABASE_URL — Postgres connection string for durable storage.');
+  }
+
+  if (!process.env.FORG3_OBJECT_ENCRYPTION_KEY && process.env.ALLOW_PLAINTEXT_OBJECTS_IN_PRODUCTION !== 'true') {
+    problems.push('FORG3_OBJECT_ENCRYPTION_KEY — 32-byte key (hex or base64) encrypting stored PDFs.');
+  }
+
+  if (problems.length) {
+    throw new Error(
+      `Production configuration is incomplete. Set the following environment variables (see docs/DEPLOYMENT.md):\n- ${problems.join('\n- ')}`
+    );
+  }
+
+  if (!process.env.PUBLIC_SIGNING_BASE_URL && !process.env.FORG3_PUBLIC_URL && !process.env.APP_PUBLIC_URL) {
+    console.warn('PUBLIC_SIGNING_BASE_URL is not set; signing links will be derived from request headers.');
   }
 }
 

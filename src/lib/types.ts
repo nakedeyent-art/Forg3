@@ -252,8 +252,9 @@ export interface FeatureStatus {
     configured: boolean;
   };
   objectStorage: {
-    mode: 'local_object_store' | 'provider';
+    mode: 'local_object_store' | 'provider' | 'postgres';
     configured: boolean;
+    encryptedAtRest?: boolean;
   };
   certificateAuthoritySignatures: {
     mode: 'provider_required';

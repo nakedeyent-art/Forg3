@@ -162,15 +162,21 @@ For subscription compliance, configure auto-renewable subscription products in A
 
 This is an electronic-signature workflow, not a certificate-authority-backed cryptographic PDF signature. For production legal enforceability, keep counsel involved and decide the exact audit-retention policy. The current app intentionally avoids IP and user-agent capture and keeps only the minimum document/signature metadata.
 
+## Deployment
+
+Forg3 is deploy-ready as a single container backed by Postgres. Set `DATABASE_URL` and the app stores workflow state in Postgres (jsonb) and encrypted PDFs in a bytea objects table — tables are created automatically at boot. Production boot runs a preflight that fails fast with the exact list of missing environment variables. A multi-stage `Dockerfile`, a `docker-compose.yml` (app + Postgres), and platform quickstarts live in the runbook: [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
+
+CI validates all of it: the smoke suite runs against both the file store and a real Postgres service container, and the production Docker image is built on every push.
+
 ### Remaining gaps before a paid public launch
 
 These still require external services, credentials, or human steps and are intentionally not faked in code:
 
-1. **Managed database + cloud object storage.** The store is guarded (`ALLOW_FILE_STORE_IN_PRODUCTION`) and objects are encrypted at rest, but production should move to Postgres plus a private cloud bucket. See [docs/PRODUCTION_PERSISTENCE.md](docs/PRODUCTION_PERSISTENCE.md).
-2. **Native billing.** App Store / Play Billing receipt verification endpoints exist (`/api/subscription/verify`) but need store credentials and StoreKit/Play Billing client work. See [docs/STORE_BILLING_IMPLEMENTATION.md](docs/STORE_BILLING_IMPLEMENTATION.md).
-3. **CA-backed PDF signatures** (PAdES) need a signing certificate/provider (`PDF_SIGNING_CERT_P12_BASE64`).
-4. **Real-device iOS/Android QA** and app-store compliance review.
-5. **Legal review** of the pilot terms/privacy text before charging outside customers.
+1. **Native billing.** App Store / Play Billing receipt verification endpoints exist (`/api/subscription/verify`) but need store credentials and StoreKit/Play Billing client work. See [docs/STORE_BILLING_IMPLEMENTATION.md](docs/STORE_BILLING_IMPLEMENTATION.md).
+2. **CA-backed PDF signatures** (PAdES) need a signing certificate/provider (`PDF_SIGNING_CERT_P12_BASE64`).
+3. **Real-device iOS/Android QA** and app-store compliance review.
+4. **Legal review** of the pilot terms/privacy text before charging outside customers.
+5. **Horizontal scaling.** The Postgres store is single-instance (in-process cache with write-through); scaling beyond one instance needs the relational schema in [docs/PRODUCTION_PERSISTENCE.md](docs/PRODUCTION_PERSISTENCE.md).
 
 The Claude audit handoff lives at [docs/CLAUDE_AUDIT_HANDOFF.md](docs/CLAUDE_AUDIT_HANDOFF.md).
 
