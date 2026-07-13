@@ -10,11 +10,13 @@ export interface OwnerIdentity {
 }
 
 type DeviceTrustVerifier = (owner: OwnerIdentity, request: Request) => boolean | Promise<boolean>;
+type SessionVerifier = (ownerEmail: string, sessionId: string) => boolean;
 
 declare global {
   namespace Express {
     interface Request {
       owner?: OwnerIdentity;
+      sessionId?: string;
     }
   }
 }
@@ -23,6 +25,7 @@ const devTokenPrefix = 'dev.';
 const emailTokenPrefix = 'email.';
 const devTokenTtlSeconds = 12 * 60 * 60;
 let deviceTrustVerifier: DeviceTrustVerifier | null = null;
+let sessionVerifier: SessionVerifier | null = null;
 
 export function devAuthEnabled() {
   return process.env.NODE_ENV !== 'production';
@@ -30,6 +33,10 @@ export function devAuthEnabled() {
 
 export function configureDeviceTrustVerifier(verifier: DeviceTrustVerifier) {
   deviceTrustVerifier = verifier;
+}
+
+export function configureSessionVerifier(verifier: SessionVerifier) {
+  sessionVerifier = verifier;
 }
 
 export async function requirePrimaryOwner(request: Request, response: Response, next: NextFunction) {
@@ -42,8 +49,14 @@ export async function requirePrimaryOwner(request: Request, response: Response, 
   }
 
   try {
-    const owner = await verifyOwnerToken(token);
-    request.owner = owner;
+    const verified = await verifyOwnerToken(token);
+    if (verified.sessionId && sessionVerifier && !sessionVerifier(verified.owner.email, verified.sessionId)) {
+      response.status(401).json({ error: 'This session has been signed out. Log in again.' });
+      return;
+    }
+
+    request.owner = verified.owner;
+    request.sessionId = verified.sessionId;
     next();
   } catch {
     response.status(401).json({ error: 'Authentication is required.' });
@@ -85,22 +98,27 @@ export function createDevAuthToken(owner: OwnerIdentity) {
   return `${devTokenPrefix}${payload}.${signature}`;
 }
 
-export function createEmailAuthToken(owner: OwnerIdentity) {
+export function createEmailAuthToken(owner: OwnerIdentity, sessionId?: string) {
   const payload = encodeJson({
     uid: owner.uid,
     email: owner.email,
     name: owner.name,
     exp: Math.floor(Date.now() / 1000) + devTokenTtlSeconds,
-    typ: 'email'
+    typ: 'email',
+    sid: sessionId
   });
   const signature = signAppPayload(payload);
 
   return `${emailTokenPrefix}${payload}.${signature}`;
 }
 
-async function verifyOwnerToken(token: string): Promise<OwnerIdentity> {
+export function getEmailAuthTokenTtlSeconds() {
+  return devTokenTtlSeconds;
+}
+
+async function verifyOwnerToken(token: string): Promise<{ owner: OwnerIdentity; sessionId?: string }> {
   if (devAuthEnabled() && token.startsWith(devTokenPrefix)) {
-    return verifyDevAuthToken(token);
+    return { owner: verifyDevAuthToken(token) };
   }
 
   if (token.startsWith(emailTokenPrefix)) {
@@ -115,13 +133,15 @@ async function verifyOwnerToken(token: string): Promise<OwnerIdentity> {
   }
 
   return {
-    uid: decoded.uid,
-    email,
-    name: decoded.name || email
+    owner: {
+      uid: decoded.uid,
+      email,
+      name: decoded.name || email
+    }
   };
 }
 
-function verifyEmailAuthToken(token: string): OwnerIdentity {
+function verifyEmailAuthToken(token: string): { owner: OwnerIdentity; sessionId?: string } {
   const parts = token.slice(emailTokenPrefix.length).split('.');
 
   if (parts.length !== 2) {
@@ -140,12 +160,13 @@ function verifyEmailAuthToken(token: string): OwnerIdentity {
   const email = String(parsed.email || '').trim().toLowerCase();
   const uid = String(parsed.uid || '').trim();
   const name = String(parsed.name || email).trim();
+  const sessionId = String(parsed.sid || '').trim() || undefined;
 
   if (parsed.typ !== 'email' || !uid || !email || exp <= Math.floor(Date.now() / 1000)) {
     throw new Error('Expired or incomplete email token.');
   }
 
-  return { uid, email, name: name || email };
+  return { owner: { uid, email, name: name || email }, sessionId };
 }
 
 function verifyDevAuthToken(token: string): OwnerIdentity {

@@ -282,6 +282,63 @@ export interface FeatureStatus {
   };
 }
 
+export interface OwnerSession {
+  id: string;
+  ownerEmail: string;
+  createdAt: string;
+  lastSeenAt: string;
+  expiresAt: string;
+  revokedAt?: string;
+  deviceName?: string;
+  deviceIdHash?: string;
+  authMethod: 'email_code' | 'dev' | 'firebase';
+}
+
+export type TotpStatus = 'pending' | 'active';
+
+export interface TotpEnrollment {
+  ownerEmail: string;
+  secret: string;
+  status: TotpStatus;
+  createdAt: string;
+  activatedAt?: string;
+}
+
+export type AuditEventType =
+  | 'auth.login'
+  | 'auth.mfa_verified'
+  | 'auth.session_revoked'
+  | 'auth.sessions_revoked_all'
+  | 'auth.device_revoked'
+  | 'auth.totp_enrolled'
+  | 'auth.totp_activated'
+  | 'auth.totp_disabled'
+  | 'document.created'
+  | 'document.viewed'
+  | 'document.signer_signed'
+  | 'document.signed'
+  | 'document.link_rotated'
+  | 'document.reminder_sent'
+  | 'document.voided'
+  | 'subscription.activated'
+  | 'subscription.canceled'
+  | 'account.exported'
+  | 'account.deleted';
+
+export interface AuditEvent {
+  id: string;
+  sequence: number;
+  ownerEmail: string;
+  actorEmail: string;
+  type: AuditEventType;
+  message: string;
+  documentId?: string;
+  signerId?: string;
+  createdAt: string;
+  previousHash: string;
+  hash: string;
+}
+
 export interface StoreShape {
   documents: SigningDocument[];
   subscriptions: AccountSubscription[];
@@ -291,4 +348,7 @@ export interface StoreShape {
   companies: CompanyProfile[];
   trustedDevices: TrustedDevice[];
   mfaChallenges: MfaChallenge[];
+  sessions: OwnerSession[];
+  totpEnrollments: TotpEnrollment[];
+  auditEvents: AuditEvent[];
 }

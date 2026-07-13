@@ -7,15 +7,18 @@ import rateLimit from 'express-rate-limit';
 import helmet from 'helmet';
 import {
   configureDeviceTrustVerifier,
+  configureSessionVerifier,
   createEmailAuthToken,
   createDevAuthToken,
   devAuthEnabled,
+  getEmailAuthTokenTtlSeconds,
   requireOwner,
   requirePrimaryOwner
 } from './auth.js';
 import { ObjectStore } from './objectStore.js';
 import { sealPdfWithSignatures } from './pdf.js';
 import { DocumentStore } from './store.js';
+import { buildOtpAuthUrl, generateTotpSecret, verifyTotpCode } from './totp.js';
 import type {
   AccountSubscription,
   AuthProvider,
@@ -66,6 +69,22 @@ const signingLimiter = rateLimit({
   standardHeaders: 'draft-7',
   legacyHeaders: false
 });
+const authCodeLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: clamp(Number(process.env.FORG3_AUTH_CODE_LIMIT ?? 10), 1, 100),
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  message: { error: 'Too many code requests from this address. Try again later.' }
+});
+const authVerifyLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: clamp(Number(process.env.FORG3_AUTH_VERIFY_LIMIT ?? 40), 1, 200),
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  message: { error: 'Too many verification attempts from this address. Try again later.' }
+});
+const codeResendCooldownMs = clamp(Number(process.env.FORG3_CODE_RESEND_COOLDOWN_SECONDS ?? 30), 5, 600) * 1000;
+const lastCodeSentAt = new Map<string, number>();
 const subscriptionPlans: SubscriptionPlan[] = [
   {
     id: 'forg3_pay_per_signature_annual',
@@ -151,6 +170,7 @@ interface MicrosoftGraphEmailConfig {
 loadRuntimeEnv();
 assertSecurityRuntimeConfig();
 configureDeviceTrustVerifier((owner, request) => isTrustedRequestDevice(owner.email, request));
+configureSessionVerifier((ownerEmail, sessionId) => store.isSessionActive(ownerEmail, sessionId));
 
 app.disable('x-powered-by');
 app.use(
@@ -178,6 +198,8 @@ app.use('/api', globalApiLimiter);
 app.use(['/api/subscription/checkout', '/api/documents'], writeLimiter);
 app.use('/api/signing/:token', signingLimiter);
 app.use('/api/signer/documents', signingLimiter);
+app.use(['/api/auth/email/start', '/api/auth/mfa/start'], authCodeLimiter);
+app.use(['/api/auth/email/verify', '/api/auth/mfa/verify'], authVerifyLimiter);
 
 app.get('/api/health', (_request, response) => {
   response.json({ ok: true, service: 'forg3-sign', time: new Date().toISOString() });
@@ -243,6 +265,10 @@ app.post('/api/auth/mfa/start', requirePrimaryOwner, async (request, response) =
   const trustedDevice = store.getTrustedDevice(owner.email, device.deviceIdHash);
   if (trustedDevice) {
     response.status(201).json({ trusted: true, required: true, expiresAt: trustedDevice.expiresAt });
+    return;
+  }
+
+  if (isCodeSendThrottled(owner.email, device.deviceIdHash, response)) {
     return;
   }
 
@@ -342,6 +368,13 @@ app.post('/api/auth/mfa/verify', requirePrimaryOwner, (request, response) => {
     expiresAt
   });
 
+  store.appendAuditEvent({
+    ownerEmail: owner.email,
+    actorEmail: owner.email,
+    type: 'auth.mfa_verified',
+    message: `Two-factor verification completed on ${device.deviceName}.`
+  });
+
   response.json({
     trusted: true,
     required: true,
@@ -362,6 +395,10 @@ app.post('/api/auth/email/start', async (request, response) => {
   const device = getEmailAuthDeviceInput(email, request);
   if (!device) {
     response.status(400).json({ error: 'A valid device id is required.' });
+    return;
+  }
+
+  if (isCodeSendThrottled(email, device.deviceIdHash, response)) {
     return;
   }
 
@@ -446,14 +483,283 @@ app.post('/api/auth/email/verify', (request, response) => {
     return;
   }
 
+  const totpEnrollment = store.getTotpEnrollment(email);
+  if (totpEnrollment?.status === 'active') {
+    const totpCode = String(request.body?.totpCode || '').trim();
+
+    if (!totpCode) {
+      response.status(401).json({ error: 'Enter the 6-digit code from your authenticator app.', totpRequired: true });
+      return;
+    }
+
+    if (!verifyTotpCode(totpEnrollment.secret, totpCode)) {
+      response.status(401).json({ error: 'Authenticator app code is incorrect.', totpRequired: true });
+      return;
+    }
+  }
+
   store.updateMfaChallenge(email, challenge.id, (current) => ({
     ...current,
     status: 'verified',
     verifiedAt: new Date().toISOString()
   }));
 
+  const now = new Date();
+  const session = store.addSession({
+    id: crypto.randomUUID(),
+    ownerEmail: email,
+    createdAt: now.toISOString(),
+    lastSeenAt: now.toISOString(),
+    expiresAt: new Date(now.getTime() + getEmailAuthTokenTtlSeconds() * 1000).toISOString(),
+    deviceName: device.deviceName,
+    deviceIdHash: device.deviceIdHash,
+    authMethod: 'email_code'
+  });
+  store.appendAuditEvent({
+    ownerEmail: email,
+    actorEmail: email,
+    type: 'auth.login',
+    message: `Signed in with an email code${totpEnrollment?.status === 'active' ? ' and authenticator app' : ''} on ${device.deviceName}.`
+  });
+
   const owner = { uid: `email:${email}`, email, name };
-  response.json({ owner, token: createEmailAuthToken(owner) });
+  response.json({
+    owner,
+    token: createEmailAuthToken(owner, session.id),
+    sessionId: session.id,
+    totpEnabled: totpEnrollment?.status === 'active'
+  });
+});
+
+app.get('/api/auth/sessions', requireOwner, (request, response) => {
+  const owner = request.owner!;
+  const sessions = store.sessionsForOwner(owner.email).slice(0, 50).map((session) => ({
+    id: session.id,
+    createdAt: session.createdAt,
+    lastSeenAt: session.lastSeenAt,
+    expiresAt: session.expiresAt,
+    revokedAt: session.revokedAt,
+    deviceName: session.deviceName,
+    authMethod: session.authMethod,
+    active: !session.revokedAt && new Date(session.expiresAt).getTime() > Date.now(),
+    current: session.id === request.sessionId
+  }));
+
+  response.json({ sessions });
+});
+
+app.post('/api/auth/sessions/revoke', requireOwner, (request, response) => {
+  const owner = request.owner!;
+  const sessionId = String(request.body?.sessionId || '').trim();
+
+  if (!sessionId) {
+    response.status(400).json({ error: 'A sessionId is required.' });
+    return;
+  }
+
+  if (!store.revokeSession(owner.email, sessionId)) {
+    response.status(404).json({ error: 'Session not found or already revoked.' });
+    return;
+  }
+
+  store.appendAuditEvent({
+    ownerEmail: owner.email,
+    actorEmail: owner.email,
+    type: 'auth.session_revoked',
+    message: 'A session was signed out remotely.'
+  });
+  response.json({ revoked: true });
+});
+
+app.post('/api/auth/sessions/revoke-all', requireOwner, (request, response) => {
+  const owner = request.owner!;
+  const revoked = store.revokeAllSessions(owner.email);
+
+  store.appendAuditEvent({
+    ownerEmail: owner.email,
+    actorEmail: owner.email,
+    type: 'auth.sessions_revoked_all',
+    message: `All sessions were signed out (${revoked} revoked).`
+  });
+  response.json({ revoked });
+});
+
+app.get('/api/auth/devices', requireOwner, (request, response) => {
+  const devices = store.trustedDevicesForOwner(request.owner!.email).map((device) => ({
+    id: device.id,
+    deviceName: device.deviceName,
+    trustedAt: device.trustedAt,
+    lastSeenAt: device.lastSeenAt,
+    expiresAt: device.expiresAt
+  }));
+
+  response.json({ devices });
+});
+
+app.delete('/api/auth/devices/:id', requireOwner, (request, response) => {
+  const owner = request.owner!;
+
+  if (!store.deleteTrustedDevice(owner.email, String(request.params.id))) {
+    response.status(404).json({ error: 'Trusted device not found.' });
+    return;
+  }
+
+  store.appendAuditEvent({
+    ownerEmail: owner.email,
+    actorEmail: owner.email,
+    type: 'auth.device_revoked',
+    message: 'A trusted device was removed. It will need two-factor verification again.'
+  });
+  response.json({ revoked: true });
+});
+
+app.get('/api/auth/totp', requireOwner, (request, response) => {
+  const enrollment = store.getTotpEnrollment(request.owner!.email);
+  response.json({
+    enabled: enrollment?.status === 'active',
+    pending: enrollment?.status === 'pending',
+    activatedAt: enrollment?.status === 'active' ? enrollment.activatedAt : undefined
+  });
+});
+
+app.post('/api/auth/totp/enroll', requireOwner, (request, response) => {
+  const owner = request.owner!;
+  const existing = store.getTotpEnrollment(owner.email);
+
+  if (existing?.status === 'active') {
+    response.status(409).json({ error: 'An authenticator app is already active. Disable it before re-enrolling.' });
+    return;
+  }
+
+  const secret = generateTotpSecret();
+  store.upsertTotpEnrollment({
+    ownerEmail: owner.email,
+    secret,
+    status: 'pending',
+    createdAt: new Date().toISOString()
+  });
+  store.appendAuditEvent({
+    ownerEmail: owner.email,
+    actorEmail: owner.email,
+    type: 'auth.totp_enrolled',
+    message: 'Authenticator app enrollment started.'
+  });
+
+  response.status(201).json({ secret, otpauthUrl: buildOtpAuthUrl(owner.email, secret) });
+});
+
+app.post('/api/auth/totp/activate', requireOwner, (request, response) => {
+  const owner = request.owner!;
+  const enrollment = store.getTotpEnrollment(owner.email);
+  const code = String(request.body?.code || '').trim();
+
+  if (!enrollment || enrollment.status !== 'pending') {
+    response.status(400).json({ error: 'Start authenticator enrollment first.' });
+    return;
+  }
+
+  if (!verifyTotpCode(enrollment.secret, code)) {
+    response.status(400).json({ error: 'Authenticator code is incorrect. Check the app and try again.' });
+    return;
+  }
+
+  store.upsertTotpEnrollment({
+    ...enrollment,
+    status: 'active',
+    activatedAt: new Date().toISOString()
+  });
+  store.appendAuditEvent({
+    ownerEmail: owner.email,
+    actorEmail: owner.email,
+    type: 'auth.totp_activated',
+    message: 'Authenticator app two-factor is now required at login.'
+  });
+  response.json({ enabled: true });
+});
+
+app.post('/api/auth/totp/disable', requireOwner, (request, response) => {
+  const owner = request.owner!;
+  const enrollment = store.getTotpEnrollment(owner.email);
+  const code = String(request.body?.code || '').trim();
+
+  if (!enrollment) {
+    response.status(404).json({ error: 'No authenticator app is enrolled.' });
+    return;
+  }
+
+  if (enrollment.status === 'active' && !verifyTotpCode(enrollment.secret, code)) {
+    response.status(400).json({ error: 'Enter a valid authenticator code to disable it.' });
+    return;
+  }
+
+  store.deleteTotpEnrollment(owner.email);
+  store.appendAuditEvent({
+    ownerEmail: owner.email,
+    actorEmail: owner.email,
+    type: 'auth.totp_disabled',
+    message: 'Authenticator app two-factor was disabled.'
+  });
+  response.json({ enabled: false });
+});
+
+app.get('/api/audit', requireOwner, (request, response) => {
+  response.json({ events: store.auditEventsForOwner(request.owner!.email) });
+});
+
+app.get('/api/account/export', requireOwner, (request, response) => {
+  const owner = request.owner!;
+  const documents = store
+    .all()
+    .filter((document) => sameEmail(document.ownerEmail, owner.email))
+    .map(toSummary);
+
+  store.appendAuditEvent({
+    ownerEmail: owner.email,
+    actorEmail: owner.email,
+    type: 'account.exported',
+    message: 'Account data export was downloaded.'
+  });
+
+  response.json({
+    account: { email: owner.email, name: owner.name, exportedAt: new Date().toISOString() },
+    subscription: store.getSubscription(owner.email) || null,
+    signatureCharges: store.chargesForOwner(owner.email),
+    documents,
+    emailDeliveries: store.deliveriesForOwner(owner.email),
+    templates: store.templatesForOwner(owner.email),
+    trustedDevices: store.trustedDevicesForOwner(owner.email).map((device) => ({
+      id: device.id,
+      deviceName: device.deviceName,
+      trustedAt: device.trustedAt,
+      lastSeenAt: device.lastSeenAt,
+      expiresAt: device.expiresAt
+    })),
+    sessions: store.sessionsForOwner(owner.email).map((session) => ({
+      id: session.id,
+      createdAt: session.createdAt,
+      lastSeenAt: session.lastSeenAt,
+      expiresAt: session.expiresAt,
+      revokedAt: session.revokedAt,
+      deviceName: session.deviceName,
+      authMethod: session.authMethod
+    })),
+    auditEvents: store.auditEventsForOwner(owner.email, 1000)
+  });
+});
+
+app.post('/api/account/delete', requireOwner, (request, response) => {
+  const owner = request.owner!;
+  const confirmEmail = normalizeEmailAddress(String(request.body?.confirmEmail || ''));
+
+  if (!sameEmail(confirmEmail, owner.email)) {
+    response.status(400).json({ error: 'Type your account email to confirm deletion.' });
+    return;
+  }
+
+  const removed = store.deleteOwnerData(owner.email);
+  objectStore.deleteOwnerObjects(owner.email);
+
+  response.json({ deleted: true, documentsRemoved: removed.documents.length });
 });
 
 app.get('/api/documents', requireOwner, (request, response) => {
@@ -515,6 +821,12 @@ app.post('/api/subscription/checkout', requireOwner, (request, response) => {
   };
 
   store.upsertSubscription(subscription);
+  store.appendAuditEvent({
+    ownerEmail: owner.email,
+    actorEmail: owner.email,
+    type: 'subscription.activated',
+    message: `Subscription ${planId} was activated via ${billingProvider}.`
+  });
   response.status(201).json({ entitlement: getSubscriptionEntitlement(owner.email), plans: subscriptionPlans });
 });
 
@@ -554,6 +866,12 @@ app.post('/api/subscription/verify', requireOwner, (request, response) => {
   };
 
   store.upsertSubscription(subscription);
+  store.appendAuditEvent({
+    ownerEmail: owner.email,
+    actorEmail: owner.email,
+    type: 'subscription.activated',
+    message: `Subscription ${planId} was activated via ${billingProvider} receipt verification.`
+  });
   response.status(201).json({ entitlement: getSubscriptionEntitlement(owner.email), plans: subscriptionPlans });
 });
 
@@ -574,6 +892,12 @@ app.post('/api/subscription/cancel', requireOwner, (request, response) => {
   };
 
   store.upsertSubscription(canceled);
+  store.appendAuditEvent({
+    ownerEmail,
+    actorEmail: ownerEmail,
+    type: 'subscription.canceled',
+    message: 'Subscription was canceled.'
+  });
   response.json({ entitlement: getSubscriptionEntitlement(ownerEmail), plans: subscriptionPlans });
 });
 
@@ -844,6 +1168,13 @@ app.post('/api/documents', requireOwner, async (request, response) => {
   };
 
   store.create(document);
+  store.appendAuditEvent({
+    ownerEmail: owner.email,
+    actorEmail: owner.email,
+    type: 'document.created',
+    message: `Document "${document.title}" was sent to ${links.length} signer${links.length === 1 ? '' : 's'}.`,
+    documentId: document.id
+  });
   const signingLinks = links.map((link) => ({
     signerId: link.signer.id,
     signerName: link.signer.name,
@@ -914,6 +1245,14 @@ app.post('/api/documents/:id/rotate-link', requireOwner, (request, response) => 
     };
   });
 
+  store.appendAuditEvent({
+    ownerEmail: request.owner!.email,
+    actorEmail: request.owner!.email,
+    type: 'document.link_rotated',
+    message: `Signing links were rotated for "${document.title}".`,
+    documentId: document.id
+  });
+
   response.json({ document: toSummary(next!), signingPath: signingLinks[0]?.signingPath, signingLinks });
 });
 
@@ -981,6 +1320,14 @@ app.post('/api/documents/:id/remind', requireOwner, async (request, response) =>
     }));
   }
 
+  store.appendAuditEvent({
+    ownerEmail: owner.email,
+    actorEmail: owner.email,
+    type: 'document.reminder_sent',
+    message: `Reminders were sent for "${document.title}".`,
+    documentId: document.id
+  });
+
   response.status(201).json({ deliveries, signingLinks });
 });
 
@@ -1004,6 +1351,14 @@ app.post('/api/documents/:id/void', requireOwner, (request, response) => {
     signers: getDocumentSigners(current).map((signer) => ({ ...signer, tokenHash: null })),
     voidedAt: new Date().toISOString()
   }));
+
+  store.appendAuditEvent({
+    ownerEmail: request.owner!.email,
+    actorEmail: request.owner!.email,
+    type: 'document.voided',
+    message: `Document "${document.title}" was voided.`,
+    documentId: document.id
+  });
 
   response.json({ document: toSummary(next!) });
 });
@@ -1052,6 +1407,15 @@ app.get('/api/signer/documents/:documentId/:signerId', requireOwner, (request, r
   }
 
   const { document, signer } = signerContext;
+
+  store.appendAuditEvent({
+    ownerEmail: document.ownerEmail,
+    actorEmail: signer.email,
+    type: 'document.viewed',
+    message: `${signer.name} <${signer.email}> opened "${document.title}" in the signing room.`,
+    documentId: document.id,
+    signerId: signer.id
+  });
 
   response.json({
     document: toPublicSigningDocument(document, signer),
@@ -1157,6 +1521,15 @@ async function completeSignerSignature(
     }));
     const remaining = getDocumentSigners(signedDocument!).filter((current) => current.status !== 'signed').length;
 
+    store.appendAuditEvent({
+      ownerEmail: document.ownerEmail,
+      actorEmail: signer.email,
+      type: 'document.signer_signed',
+      message: `${signer.name} <${signer.email}> signed "${document.title}".`,
+      documentId: document.id,
+      signerId: signer.id
+    });
+
     if (remaining > 0) {
       response.json({
         document: toSummary(signedDocument!),
@@ -1198,6 +1571,14 @@ async function completeSignerSignature(
     }));
 
     recordSignatureUsage(finalDocument!);
+    store.appendAuditEvent({
+      ownerEmail: document.ownerEmail,
+      actorEmail: signer.email,
+      type: 'document.signed',
+      message: `Document "${document.title}" is fully signed and sealed. Hash ${signedDocumentHash.slice(0, 16)}…`,
+      documentId: document.id,
+      signerId: signer.id
+    });
 
     response.json({
       document: toSummary(finalDocument!),
@@ -1846,6 +2227,26 @@ function getRequestDeviceId(request: Request) {
 
 function isDeviceMfaRequired() {
   return process.env.FORG3_DEVICE_2FA !== 'false';
+}
+
+function isCodeSendThrottled(email: string, deviceIdHash: string, response: Response) {
+  const throttleKey = `${email.trim().toLowerCase()}:${deviceIdHash}`;
+  const lastSent = lastCodeSentAt.get(throttleKey) || 0;
+
+  if (Date.now() - lastSent < codeResendCooldownMs) {
+    response.status(429).json({
+      error: `A code was just sent. Wait ${Math.ceil((codeResendCooldownMs - (Date.now() - lastSent)) / 1000)}s before requesting another.`
+    });
+    return true;
+  }
+
+  lastCodeSentAt.set(throttleKey, Date.now());
+
+  if (lastCodeSentAt.size > 10000) {
+    lastCodeSentAt.clear();
+  }
+
+  return false;
 }
 
 function generateMfaCode() {

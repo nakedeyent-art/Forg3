@@ -10,6 +10,8 @@
     "build": "tsc -p tsconfig.app.json && vite build && tsc -p tsconfig.server.json",
     "start": "node dist-server/server/index.js",
     "preview": "npm run build && npm run start",
+    "typecheck": "tsc -p tsconfig.app.json --noEmit && tsc -p tsconfig.server.json --noEmit",
+    "smoke": "node scripts/smoke.mjs",
     "cap:sync": "npm run build && cap sync",
     "ios:open": "npm run cap:sync && cap open ios",
     "android:open": "npm run cap:sync && cap open android"
