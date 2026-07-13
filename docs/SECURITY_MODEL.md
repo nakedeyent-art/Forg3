@@ -4,10 +4,19 @@
 
 - The API creates a 32-byte random signing token.
 - Only `SHA-256(token)` is stored.
-- The raw token appears only in the signing URL returned to the owner.
+- Sender-facing and emailed links use assigned-recipient routes instead of exposing raw token links.
+- Legacy raw token routes require the signed-in email to match the assigned signer before the PDF opens or signing is allowed.
 - A token can sign one packet only.
 - After signing, `tokenHash` is set to `null`.
 - Expired and voided packets cannot be signed.
+
+## Account and recipient access
+
+- Primary login uses Google or Apple through Firebase when configured, or first-party email-code login with signed app tokens.
+- New devices must pass email-code 2FA before account data, recipient inboxes, or signing rooms are available.
+- Trusted devices are stored by device-id hash with an expiration window.
+- MFA challenge codes are stored as hashes, expire quickly, and lock after repeated failed attempts.
+- Recipient document access requires `req.owner.email` to match the assigned signer email.
 
 ## Data retained
 
@@ -22,12 +31,14 @@ The local store keeps:
 - Signature image data.
 - Consent text.
 - Metered signature charge records for pay-per-signature subscriptions.
+- Trusted-device hashes and MFA challenge hashes.
 
 The local store does not intentionally capture:
 
 - IP addresses.
 - User-agent strings.
 - Raw signing tokens.
+- Raw MFA codes.
 
 ## Important production upgrades
 

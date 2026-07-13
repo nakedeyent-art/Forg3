@@ -6,11 +6,14 @@
 - Single-use, hash-only signing tokens.
 - Signed PDF audit certificate page with signer, timestamp, original document hash, audit event hash, signature method, and token consumption status.
 - Typed-signature fallback for keyboard users.
+- Email provider send path for signing links and reminders.
+- Email-code 2FA for new devices after primary Google/Apple login.
+- Assigned-recipient signing rooms that require the signed-in email to match the signer before PDF preview or signing.
 
 ## Next Features In Impact Order
 
-1. Email delivery of signing links and signed copies.
-   - Requires approved email provider, sender domain authentication, bounce handling, and unsubscribe/transactional policy.
+1. Signed-copy delivery after completion.
+   - Requires approved email provider, sender domain authentication, bounce handling, and transactional policy.
 2. Multi-signer routing.
    - Requires per-signer token rows, signing order, reminders, and certificate events per signer.
 3. Reusable contacts and templates.
@@ -24,7 +27,7 @@
 
 ## Blocked By Decisions Or Infrastructure
 
-- Email delivery provider and sending domain.
+- Email delivery provider, public app URL, and sending domain.
 - Audit-trail privacy scope.
 - Production database and encrypted blob storage.
 - Store-compliant per-signature billing model.

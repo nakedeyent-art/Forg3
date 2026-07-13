@@ -2,6 +2,12 @@
 
 These items require owner/legal or infrastructure sign-off before production release.
 
+## Creator And Unlimited Access Policy
+
+Current product decision: creator accounts configured in `FORG3_CREATOR_EMAILS` have unlimited access without a paid subscription. For paid customers, unlimited access is only available on the highest tier, Forg3 Business.
+
+Implementation note: do not mark lower tiers as unlimited. Pro may have advanced workflow features, but it stays capped below highest-tier unlimited access.
+
 ## Entitlement At Signing
 
 Current safe default: `SIGNING_ENTITLEMENT_POLICY=block_when_inactive`.

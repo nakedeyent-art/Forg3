@@ -1,13 +1,18 @@
 import { type ChangeEvent, type FormEvent, useEffect, useMemo, useState } from 'react';
 import {
   AlertCircle,
+  BookOpen,
+  Building2,
   CheckCircle,
   Clock,
   Copy,
   CreditCard,
   Download,
   ExternalLink,
+  Fingerprint,
+  FileCheck2,
   FileText,
+  Inbox,
   KeyRound,
   Link as LinkIcon,
   Loader2,
@@ -15,55 +20,226 @@ import {
   LogOut,
   PenLine,
   RefreshCcw,
+  ReceiptText,
+  Send,
   ShieldCheck,
   Smartphone,
+  Users,
   Trash2,
   Upload,
   X
 } from 'lucide-react';
 import {
   createDocument,
+  createTemplate,
   cancelSubscription,
+  addCompanyMember,
+  getAssignedSigningDocument,
+  getCompany,
+  getFeatureStatus,
   getSubscription,
   getPublicSigningDocument,
   getSignedDocument,
+  listEmailDeliveries,
+  listSignerDocuments,
+  listTemplates,
   listDocuments,
   rotateSigningLink,
+  sendReminder,
+  signAssignedDocument,
   signDocument,
   startSubscription,
   voidDocument
 } from './lib/api';
-import { clearStoredSession, firebaseConfigured, getStoredSession, signIn } from './lib/auth';
+import {
+  checkDeviceSecurity,
+  clearStoredSession,
+  firebaseConfigured,
+  getStoredSession,
+  signIn,
+  startEmailSignIn,
+  verifyEmailSignIn,
+  startDeviceVerification,
+  verifyDeviceCode
+} from './lib/auth';
 import { downloadDataUrl, fileToDataUrl } from './lib/pdf';
 import type {
   AuthSession,
+  CompanyProfile,
+  DocumentTemplate,
   DocumentSummary,
+  EmailDelivery,
+  FeatureStatus,
   PlanId,
   PublicSigningDocument,
+  SignerInboxDocument,
   SignedDocumentResponse,
+  SignatureFieldPlacement,
   SubscriptionEntitlement,
   SubscriptionPlan
 } from './lib/types';
 import { SignaturePad } from './components/SignaturePad';
 
 interface RouteState {
-  kind: 'dashboard' | 'sign';
+  kind: 'dashboard' | 'sign' | 'inbox' | 'assigned-sign';
   token?: string;
+  documentId?: string;
+  signerId?: string;
 }
 
 interface CreateForm {
   title: string;
   signerName: string;
   signerEmail: string;
+  additionalSigners: Array<{ name: string; email: string; role?: string }>;
   expiresInHours: number;
+  signatureField: SignatureFieldPlacement;
+  identityVerificationRequired: boolean;
 }
 
 const blankForm: CreateForm = {
   title: '',
   signerName: '',
   signerEmail: '',
-  expiresInHours: 72
+  additionalSigners: [],
+  expiresInHours: 72,
+  signatureField: {
+    page: 'last',
+    xPercent: 4,
+    yPercent: 4,
+    widthPercent: 88
+  },
+  identityVerificationRequired: false
 };
+
+const manualTierRows = [
+  {
+    feature: 'Base price',
+    payPerSignature: '$12/year',
+    pro: '$19/month',
+    business: '$49/month'
+  },
+  {
+    feature: 'Usage charge',
+    payPerSignature: '$0.99 per completed signature',
+    pro: 'Included',
+    business: 'Included'
+  },
+  {
+    feature: 'Best fit',
+    payPerSignature: 'Occasional sending',
+    pro: 'Consistent single-owner use',
+    business: 'Highest-tier unlimited use'
+  },
+  {
+    feature: 'Unlimited access',
+    payPerSignature: 'No - metered per completed signature',
+    pro: 'No - capped below highest tier',
+    business: 'Yes'
+  },
+  {
+    feature: 'Owner seats',
+    payPerSignature: '1',
+    pro: '1',
+    business: '5 planned seats'
+  },
+  {
+    feature: 'PDF upload and signing links',
+    payPerSignature: 'Included',
+    pro: 'Included',
+    business: 'Included'
+  },
+  {
+    feature: 'Drawn or typed signatures',
+    payPerSignature: 'Included',
+    pro: 'Included',
+    business: 'Included'
+  },
+  {
+    feature: 'Expiring single-use links',
+    payPerSignature: 'Included',
+    pro: 'Included',
+    business: 'Included'
+  },
+  {
+    feature: 'Signed PDF download',
+    payPerSignature: 'Included',
+    pro: 'Included',
+    business: 'Included'
+  },
+  {
+    feature: 'Audit certificate page',
+    payPerSignature: 'Included',
+    pro: 'Included',
+    business: 'Included'
+  },
+  {
+    feature: 'Email delivery',
+    payPerSignature: 'Local outbox',
+    pro: 'Provider delivery + reminders',
+    business: 'Provider delivery + reminders'
+  },
+  {
+    feature: 'Multi-signer routing',
+    payPerSignature: 'Not included',
+    pro: 'Included',
+    business: 'Included'
+  },
+  {
+    feature: 'Drag-and-drop field placement',
+    payPerSignature: 'Default placement',
+    pro: 'Included',
+    business: 'Included'
+  },
+  {
+    feature: 'ID verification',
+    payPerSignature: 'Not included',
+    pro: 'Not included',
+    business: 'Self-attestation; provider-ready'
+  },
+  {
+    feature: 'Payment receipt verification',
+    payPerSignature: 'Provider-ready',
+    pro: 'Provider-ready',
+    business: 'Provider-ready'
+  },
+  {
+    feature: 'Production object storage',
+    payPerSignature: 'Local object store',
+    pro: 'Local object store',
+    business: 'Provider-ready'
+  },
+  {
+    feature: 'Company admin controls',
+    payPerSignature: 'Not included',
+    pro: 'Not included',
+    business: 'Included'
+  },
+  {
+    feature: 'Templates',
+    payPerSignature: 'Not included',
+    pro: 'Included',
+    business: 'Included'
+  },
+  {
+    feature: 'Reminders',
+    payPerSignature: 'Not included',
+    pro: 'Included',
+    business: 'Included'
+  },
+  {
+    feature: 'CA-backed PDF signatures',
+    payPerSignature: 'Not included',
+    pro: 'Not included',
+    business: 'Provider-ready'
+  },
+  {
+    feature: 'Priority audit exports',
+    payPerSignature: 'Not included',
+    pro: 'Not included',
+    business: 'Planned'
+  }
+];
 
 export default function App() {
   const [route, setRoute] = useState<RouteState>(() => parseRoute());
@@ -75,7 +251,15 @@ export default function App() {
   }, []);
 
   if (route.kind === 'sign' && route.token) {
-    return <SignerScreen token={route.token} />;
+    return <SignerScreen access={{ kind: 'token', token: route.token }} />;
+  }
+
+  if (route.kind === 'assigned-sign' && route.documentId && route.signerId) {
+    return <SignerScreen access={{ kind: 'assigned', documentId: route.documentId, signerId: route.signerId }} />;
+  }
+
+  if (route.kind === 'inbox') {
+    return <RecipientInboxScreen />;
   }
 
   return <Dashboard />;
@@ -83,15 +267,22 @@ export default function App() {
 
 function Dashboard() {
   const [session, setSession] = useState<AuthSession | null>(() => getStoredSession());
+  const [deviceVerified, setDeviceVerified] = useState(false);
   const [documents, setDocuments] = useState<DocumentSummary[]>([]);
   const [form, setForm] = useState<CreateForm>(blankForm);
   const [file, setFile] = useState<File | null>(null);
   const [fileDataUrl, setFileDataUrl] = useState('');
   const [busy, setBusy] = useState('');
   const [message, setMessage] = useState('');
-  const [latestLink, setLatestLink] = useState<{ documentId: string; url: string } | null>(null);
+  const [latestLinks, setLatestLinks] = useState<Array<{ documentId: string; signerName: string; signerEmail: string; url: string }>>([]);
   const [entitlement, setEntitlement] = useState<SubscriptionEntitlement | null>(null);
   const [plans, setPlans] = useState<SubscriptionPlan[]>([]);
+  const [featureStatus, setFeatureStatus] = useState<FeatureStatus | null>(null);
+  const [capabilities, setCapabilities] = useState<Record<string, boolean>>({});
+  const [deliveries, setDeliveries] = useState<EmailDelivery[]>([]);
+  const [templates, setTemplates] = useState<DocumentTemplate[]>([]);
+  const [company, setCompany] = useState<CompanyProfile | null>(null);
+  const [companyMember, setCompanyMember] = useState({ name: '', email: '', role: 'viewer' as 'admin' | 'sender' | 'viewer' });
 
   const activeCount = useMemo(
     () => documents.filter((document) => document.status === 'sent').length,
@@ -103,28 +294,36 @@ function Dashboard() {
   );
 
   useEffect(() => {
-    if (!session) {
+    if (!session || !deviceVerified) {
       setDocuments([]);
       setEntitlement(null);
       setPlans([]);
+      setFeatureStatus(null);
+      setCapabilities({});
+      setDeliveries([]);
+      setTemplates([]);
+      setCompany(null);
       return;
     }
 
     void refreshDocuments(setDocuments, setMessage);
     void refreshSubscription(setEntitlement, setPlans, setMessage);
-  }, [session]);
+    void refreshFeatureSuite(setFeatureStatus, setCapabilities, setDeliveries, setTemplates, setCompany);
+  }, [session, deviceVerified]);
 
   useEffect(() => {
-    if (!latestLink) {
+    setDeviceVerified(false);
+  }, [session?.uid, session?.email]);
+
+  useEffect(() => {
+    if (!latestLinks.length) {
       return;
     }
 
-    const linkedDocument = documents.find((document) => document.id === latestLink.documentId);
+    const liveDocumentIds = new Set(documents.filter((document) => document.linkAvailable).map((document) => document.id));
 
-    if (linkedDocument && !linkedDocument.linkAvailable) {
-      setLatestLink(null);
-    }
-  }, [documents, latestLink]);
+    setLatestLinks((current) => current.filter((link) => liveDocumentIds.has(link.documentId)));
+  }, [documents, latestLinks.length]);
 
   const handleSignIn = async (provider: 'google' | 'apple') => {
     setBusy(`auth-${provider}`);
@@ -197,6 +396,16 @@ function Dashboard() {
     setMessage('');
 
     try {
+      const signers = [
+        { name: form.signerName.trim(), email: form.signerEmail.trim(), role: 'Signer' },
+        ...form.additionalSigners
+          .map((signer) => ({
+            name: signer.name.trim(),
+            email: signer.email.trim(),
+            role: signer.role?.trim() || 'Signer'
+          }))
+          .filter((signer) => signer.name && signer.email)
+      ];
       const response = await createDocument({
         title: form.title.trim() || file.name.replace(/\.pdf$/i, ''),
         fileName: file.name,
@@ -204,15 +413,28 @@ function Dashboard() {
         fileDataUrl,
         signerName: form.signerName.trim(),
         signerEmail: form.signerEmail.trim(),
+        signers,
+        signatureField: form.signatureField,
+        identityVerificationRequired: form.identityVerificationRequired,
         authProvider: session.provider,
         expiresInHours: form.expiresInHours
       });
-      setLatestLink({ documentId: response.document.id, url: makeSigningUrl(response.signingPath) });
+      setLatestLinks(linksFromResponse(response));
+      if (response.deliveries?.length) {
+        setDeliveries((current) => [...response.deliveries!, ...current].slice(0, 25));
+      }
       setDocuments((current) => [response.document, ...current]);
       setForm(blankForm);
       setFile(null);
       setFileDataUrl('');
-      setMessage('Signing link created.');
+      await refreshFeatureSuite(setFeatureStatus, setCapabilities, setDeliveries, setTemplates, setCompany);
+      setMessage(
+        response.deliveries?.length
+          ? `${response.deliveries.length} delivery record${response.deliveries.length === 1 ? '' : 's'} created.`
+          : response.signingLinks.length > 1
+            ? 'Multi-signer links created.'
+            : 'Signing link created.'
+      );
     } catch (error) {
       setMessage(getErrorMessage(error));
     } finally {
@@ -236,6 +458,7 @@ function Dashboard() {
       });
       setEntitlement(response.entitlement);
       setPlans(response.plans);
+      await refreshFeatureSuite(setFeatureStatus, setCapabilities, setDeliveries, setTemplates, setCompany);
       setMessage(`${response.entitlement.plan?.name || 'Subscription'} activated.`);
     } catch (error) {
       setMessage(getErrorMessage(error));
@@ -270,7 +493,7 @@ function Dashboard() {
 
     try {
       const response = await rotateSigningLink(document.id, 72);
-      setLatestLink({ documentId: response.document.id, url: makeSigningUrl(response.signingPath) });
+      setLatestLinks(linksFromResponse(response));
       await refreshDocuments(setDocuments, setMessage);
       setMessage('New signing link created.');
     } catch (error) {
@@ -287,7 +510,7 @@ function Dashboard() {
     try {
       await voidDocument(document.id);
       await refreshDocuments(setDocuments, setMessage);
-      setLatestLink((current) => (current?.documentId === document.id ? null : current));
+      setLatestLinks((current) => current.filter((link) => link.documentId !== document.id));
       setMessage('Document voided.');
     } catch (error) {
       setMessage(getErrorMessage(error));
@@ -302,7 +525,96 @@ function Dashboard() {
 
     try {
       const response = await getSignedDocument(document.id);
+      if (!response.signedFileDataUrl) {
+        throw new Error('Signed PDF is not available yet.');
+      }
       downloadDataUrl(response.signedFileDataUrl, response.fileName);
+    } catch (error) {
+      setMessage(getErrorMessage(error));
+    } finally {
+      setBusy('');
+    }
+  };
+
+  const handleReminder = async (document: DocumentSummary) => {
+    setBusy(`remind-${document.id}`);
+    setMessage('');
+
+    try {
+      const response = await sendReminder(document.id);
+      setDeliveries((current) => [...response.deliveries, ...current].slice(0, 25));
+      setLatestLinks(linksFromResponse({ document, signingLinks: response.signingLinks }));
+      setMessage(`${response.deliveries.length} reminder${response.deliveries.length === 1 ? '' : 's'} queued.`);
+    } catch (error) {
+      setMessage(getErrorMessage(error));
+    } finally {
+      setBusy('');
+    }
+  };
+
+  const handleSaveTemplate = async () => {
+    if (!form.title.trim()) {
+      setMessage('Add a document title before saving a template.');
+      return;
+    }
+
+    setBusy('save-template');
+    setMessage('');
+
+    try {
+      const response = await createTemplate({
+        name: form.title.trim(),
+        title: form.title.trim(),
+        signers: [
+          { name: form.signerName || 'Signer', email: form.signerEmail || 'signer@example.com', role: 'Signer' },
+          ...form.additionalSigners
+        ],
+        expiresInHours: form.expiresInHours,
+        signatureField: form.signatureField,
+        identityVerificationRequired: form.identityVerificationRequired
+      });
+      setTemplates((current) => [response.template, ...current]);
+      setMessage('Template saved.');
+    } catch (error) {
+      setMessage(getErrorMessage(error));
+    } finally {
+      setBusy('');
+    }
+  };
+
+  const applyTemplate = (template: DocumentTemplate) => {
+    const [firstSigner, ...additionalSigners] = template.signerRoles;
+    setForm((current) => ({
+      ...current,
+      title: template.title,
+      signerName: firstSigner?.name || current.signerName,
+      signerEmail: firstSigner?.email || current.signerEmail,
+      additionalSigners: additionalSigners.map((signer) => ({
+        name: signer.name,
+        email: signer.email,
+        role: signer.role
+      })),
+      expiresInHours: template.expiresInHours,
+      signatureField: template.signatureField,
+      identityVerificationRequired: template.identityVerificationRequired
+    }));
+    setMessage('Template applied.');
+  };
+
+  const handleAddCompanyMember = async () => {
+    if (!companyMember.email) {
+      setMessage('Add a team member email.');
+      return;
+    }
+
+    setBusy('company-member');
+    setMessage('');
+
+    try {
+      const response = await addCompanyMember(companyMember);
+      setCompany(response.company);
+      setCompanyMember({ name: '', email: '', role: 'viewer' });
+      setMessage('Company member invited.');
     } catch (error) {
       setMessage(getErrorMessage(error));
     } finally {
@@ -313,10 +625,28 @@ function Dashboard() {
   const signOut = () => {
     clearStoredSession();
     setSession(null);
+    setDeviceVerified(false);
     setDocuments([]);
     setEntitlement(null);
     setPlans([]);
+    setFeatureStatus(null);
+    setCapabilities({});
+    setDeliveries([]);
+    setTemplates([]);
+    setCompany(null);
+    setLatestLinks([]);
   };
+
+  if (session && !deviceVerified) {
+    return (
+      <DeviceVerificationScreen
+        session={session}
+        onVerified={() => setDeviceVerified(true)}
+        onSignOut={signOut}
+        context="account"
+      />
+    );
+  }
 
   return (
     <div className="app-shell">
@@ -332,6 +662,10 @@ function Dashboard() {
         </a>
 
         <div className="top-actions">
+          <a className="secondary-button top-link" href="#/inbox">
+            <Inbox size={15} />
+            Recipient inbox
+          </a>
           <span className="runtime-pill">
             <Smartphone size={15} />
             {getBillingRuntimeLabel()}
@@ -345,16 +679,7 @@ function Dashboard() {
               </button>
             </div>
           ) : (
-            <div className="auth-buttons">
-              <button type="button" onClick={() => void handleSignIn('google')} disabled={busy === 'auth-google'}>
-                <KeyRound size={16} />
-                Google
-              </button>
-              <button type="button" onClick={() => void handleSignIn('apple')} disabled={busy === 'auth-apple'}>
-                <KeyRound size={16} />
-                Apple
-              </button>
-            </div>
+            <AuthControls onSignedIn={setSession} />
           )}
         </div>
       </header>
@@ -405,6 +730,67 @@ function Dashboard() {
               />
             </label>
 
+            <div className="feature-box">
+              <div className="feature-box-heading">
+                <span>Multi-signer routing</span>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setForm((current) => ({
+                      ...current,
+                      additionalSigners: [...current.additionalSigners, { name: '', email: '', role: 'Approver' }]
+                    }))
+                  }
+                  disabled={!capabilities.multiSigner}
+                >
+                  <Users size={16} />
+                  Add signer
+                </button>
+              </div>
+              {form.additionalSigners.map((signer, index) => (
+                <div className="signer-mini-grid" key={`signer-${index}`}>
+                  <input
+                    value={signer.name}
+                    onChange={(event) =>
+                      setForm((current) => ({
+                        ...current,
+                        additionalSigners: current.additionalSigners.map((item, itemIndex) =>
+                          itemIndex === index ? { ...item, name: event.target.value } : item
+                        )
+                      }))
+                    }
+                    placeholder="Additional signer"
+                  />
+                  <input
+                    type="email"
+                    value={signer.email}
+                    onChange={(event) =>
+                      setForm((current) => ({
+                        ...current,
+                        additionalSigners: current.additionalSigners.map((item, itemIndex) =>
+                          itemIndex === index ? { ...item, email: event.target.value } : item
+                        )
+                      }))
+                    }
+                    placeholder="signer@example.com"
+                  />
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setForm((current) => ({
+                        ...current,
+                        additionalSigners: current.additionalSigners.filter((_, itemIndex) => itemIndex !== index)
+                      }))
+                    }
+                    title="Remove signer"
+                  >
+                    <X size={16} />
+                  </button>
+                </div>
+              ))}
+              {!capabilities.multiSigner && <small>Pro or Business unlocks additional signers.</small>}
+            </div>
+
             <label>
               <span>Expires in hours</span>
               <input
@@ -417,6 +803,34 @@ function Dashboard() {
                 }
               />
             </label>
+
+            <FieldPlacementControl
+              disabled={!capabilities.fieldPlacement}
+              field={form.signatureField}
+              onChange={(signatureField) => setForm((current) => ({ ...current, signatureField }))}
+            />
+
+            <label className="consent-row compact-toggle">
+              <input
+                type="checkbox"
+                checked={form.identityVerificationRequired}
+                disabled={!capabilities.idVerification}
+                onChange={(event) =>
+                  setForm((current) => ({ ...current, identityVerificationRequired: event.target.checked }))
+                }
+              />
+              <span>ID verification attestation {capabilities.idVerification ? '' : '(Business)'}</span>
+            </label>
+
+            <button
+              className="secondary-button"
+              type="button"
+              onClick={() => void handleSaveTemplate()}
+              disabled={!capabilities.templates || busy === 'save-template'}
+            >
+              {busy === 'save-template' ? <Loader2 className="spin" size={16} /> : <FileCheck2 size={16} />}
+              Save template
+            </button>
 
             <button
               className="primary-button"
@@ -452,8 +866,8 @@ function Dashboard() {
 
           {!firebaseConfigured() && import.meta.env.PROD && (
             <div className="inline-note">
-              <AlertCircle size={16} />
-              Firebase authentication must be configured before release.
+              <ShieldCheck size={16} />
+              Email-code login is enabled.
             </div>
           )}
         </section>
@@ -474,20 +888,27 @@ function Dashboard() {
             <StatCard label="Total" value={documents.length} tone="gold" />
           </div>
 
-          {latestLink && (
-            <div className="link-banner">
+          {latestLinks.length > 0 && (
+            <div className="link-stack">
               <LinkIcon size={19} />
-              <input value={latestLink.url} readOnly aria-label="Latest signing link" />
-              <button type="button" onClick={() => void copyText(latestLink.url, setMessage)} title="Copy link">
-                <Copy size={17} />
-              </button>
-              <button
-                type="button"
-                onClick={() => window.open(latestLink.url, '_blank', 'noopener,noreferrer')}
-                title="Open link"
-              >
-                <ExternalLink size={17} />
-              </button>
+              <div>
+                {latestLinks.map((link) => (
+                  <div className="link-banner" key={`${link.documentId}-${link.signerEmail}`}>
+                    <span>{link.signerName}</span>
+                    <input value={link.url} readOnly aria-label={`Signing link for ${link.signerName}`} />
+                    <button type="button" onClick={() => void copyText(link.url, setMessage)} title="Copy link">
+                      <Copy size={17} />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => window.open(link.url, '_blank', 'noopener,noreferrer')}
+                      title="Open link"
+                    >
+                      <ExternalLink size={17} />
+                    </button>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
 
@@ -521,7 +942,9 @@ function Dashboard() {
                       <div>
                         <h3>{document.title}</h3>
                         <p>
-                          {document.signerName} - {document.signerEmail}
+                          {document.signerCount > 1
+                            ? `${document.signedSignerCount}/${document.signerCount} signers completed`
+                            : `${document.signerName} - ${document.signerEmail}`}
                         </p>
                         <small>Expires {formatDate(document.expiresAt)}</small>
                       </div>
@@ -551,6 +974,16 @@ function Dashboard() {
                           )}
                         </button>
                       ) : null}
+                      {document.status === 'sent' ? (
+                        <button
+                          type="button"
+                          onClick={() => void handleReminder(document)}
+                          disabled={!capabilities.reminders || busy === `remind-${document.id}`}
+                          title="Send reminder"
+                        >
+                          {busy === `remind-${document.id}` ? <Loader2 className="spin" size={16} /> : <Send size={16} />}
+                        </button>
+                      ) : null}
                       {document.status === 'sent' || document.status === 'expired' ? (
                         <button
                           type="button"
@@ -567,8 +1000,23 @@ function Dashboard() {
               </div>
             )}
           </div>
+
+          <FeatureSuitePanel
+            busy={busy}
+            capabilities={capabilities}
+            company={company}
+            companyMember={companyMember}
+            deliveries={deliveries}
+            featureStatus={featureStatus}
+            onAddCompanyMember={() => void handleAddCompanyMember()}
+            onApplyTemplate={applyTemplate}
+            setCompanyMember={setCompanyMember}
+            templates={templates}
+          />
         </section>
       </main>
+
+      <InstructionManual />
 
       {message && (
         <div className="toast">
@@ -579,6 +1027,791 @@ function Dashboard() {
         </div>
       )}
     </div>
+  );
+}
+
+function RecipientInboxScreen() {
+  const [session, setSession] = useState<AuthSession | null>(() => getStoredSession());
+  const [deviceVerified, setDeviceVerified] = useState(false);
+  const [documents, setDocuments] = useState<SignerInboxDocument[]>([]);
+  const [busy, setBusy] = useState('');
+  const [message, setMessage] = useState('');
+
+  useEffect(() => {
+    if (!session || !deviceVerified) {
+      setDocuments([]);
+      return;
+    }
+
+    void refreshSignerInbox(setDocuments, setMessage, setBusy);
+  }, [session, deviceVerified]);
+
+  useEffect(() => {
+    setDeviceVerified(false);
+  }, [session?.uid, session?.email]);
+
+  const handleSignIn = async (provider: 'google' | 'apple') => {
+    setBusy(`auth-${provider}`);
+    setMessage('');
+
+    try {
+      const nextSession = await signIn(provider);
+      setSession(nextSession);
+    } catch (error) {
+      setMessage(getErrorMessage(error));
+    } finally {
+      setBusy('');
+    }
+  };
+
+  const signOut = () => {
+    clearStoredSession();
+    setSession(null);
+    setDeviceVerified(false);
+    setDocuments([]);
+  };
+
+  if (session && !deviceVerified) {
+    return (
+      <DeviceVerificationScreen
+        session={session}
+        onVerified={() => setDeviceVerified(true)}
+        onSignOut={signOut}
+        context="recipient"
+      />
+    );
+  }
+
+  return (
+    <div className="signer-shell">
+      <header className="signer-header">
+        <a className="brand" href="#/">
+          <span className="brand-mark">
+            <PenLine size={20} />
+          </span>
+          <span>
+            <strong>Forg3 Sign</strong>
+            <small>Recipient inbox</small>
+          </span>
+        </a>
+        <div className="top-actions">
+          <a className="secondary-button top-link" href="#/">
+            <Upload size={15} />
+            Sender desk
+          </a>
+          {session && (
+            <div className="session-pill">
+              <KeyRound size={15} />
+              <span>{session.email}</span>
+              <button type="button" className="icon-button" onClick={signOut} title="Sign out">
+                <LogOut size={16} />
+              </button>
+            </div>
+          )}
+        </div>
+      </header>
+
+      {!session ? (
+        <section className="complete-panel inbox-auth-panel">
+          <Inbox size={42} />
+          <h1>Open documents assigned to your email</h1>
+          <p>Sign in with the email address the sender added to the document.</p>
+          <AuthControls onSignedIn={setSession} />
+          {message && <div className="inline-note">{message}</div>}
+        </section>
+      ) : (
+        <main className="recipient-workspace">
+          <section className="documents-table recipient-inbox-table">
+            <div className="table-heading">
+              <div>
+                <span className="eyebrow">Assigned to</span>
+                <h1>{session.email}</h1>
+              </div>
+              <button
+                className="secondary-button"
+                type="button"
+                onClick={() => void refreshSignerInbox(setDocuments, setMessage, setBusy)}
+                disabled={busy === 'inbox'}
+              >
+                {busy === 'inbox' ? <Loader2 className="spin" size={16} /> : <RefreshCcw size={16} />}
+                Refresh
+              </button>
+            </div>
+
+            {busy === 'inbox' && !documents.length ? (
+              <div className="center-state">
+                <Loader2 className="spin" size={28} />
+              </div>
+            ) : documents.length === 0 ? (
+              <div className="empty-state">
+                <FileText size={32} />
+                <p>No documents are assigned to this email.</p>
+              </div>
+            ) : (
+              <div className="document-list">
+                {documents.map((document) => (
+                  <article className="document-row" key={`${document.id}-${document.signerId}`}>
+                    <div className="document-main">
+                      <FileText size={20} />
+                      <div>
+                        <h3>{document.title}</h3>
+                        <p>{document.ownerName}</p>
+                        <small>
+                          {document.signerStatus === 'signed'
+                            ? `Signed ${formatDate(document.signedAt || '')}`
+                            : `Expires ${formatDate(document.expiresAt)}`}
+                        </small>
+                      </div>
+                    </div>
+                    <StatusChip status={document.documentStatus} />
+                    <div className="row-actions">
+                      <button
+                        type="button"
+                        disabled={!document.canSign}
+                        onClick={() => {
+                          window.location.hash = `#/inbox/sign/${document.id}/${document.signerId}`;
+                        }}
+                        title={document.canSign ? 'Review and sign' : 'Document is not available for signing'}
+                      >
+                        <PenLine size={16} />
+                      </button>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            )}
+          </section>
+          {message && <div className="inline-note">{message}</div>}
+        </main>
+      )}
+    </div>
+  );
+}
+
+function DeviceVerificationScreen({
+  session,
+  onVerified,
+  onSignOut,
+  context
+}: {
+  session: AuthSession;
+  onVerified: () => void;
+  onSignOut: () => void;
+  context: 'account' | 'recipient';
+}) {
+  return (
+    <div className="signer-shell">
+      <header className="signer-header">
+        <a className="brand" href="#/">
+          <span className="brand-mark">
+            <PenLine size={20} />
+          </span>
+          <span>
+            <strong>Forg3 Sign</strong>
+            <small>{context === 'recipient' ? 'Recipient verification' : 'Account verification'}</small>
+          </span>
+        </a>
+        <div className="session-pill">
+          <KeyRound size={15} />
+          <span>{session.email}</span>
+          <button type="button" className="icon-button" onClick={onSignOut} title="Sign out">
+            <LogOut size={16} />
+          </button>
+        </div>
+      </header>
+      <DeviceVerificationPanel session={session} onVerified={onVerified} onSignOut={onSignOut} context={context} />
+    </div>
+  );
+}
+
+function AuthControls({ onSignedIn }: { onSignedIn: (session: AuthSession) => void }) {
+  const [email, setEmail] = useState('');
+  const [name, setName] = useState('');
+  const [challengeId, setChallengeId] = useState('');
+  const [code, setCode] = useState('');
+  const [busy, setBusy] = useState('');
+  const [message, setMessage] = useState('');
+  const [devCode, setDevCode] = useState('');
+  const showProviderButtons = firebaseConfigured() || import.meta.env.DEV;
+
+  const handleProviderSignIn = async (provider: 'google' | 'apple') => {
+    setBusy(`auth-${provider}`);
+    setMessage('');
+
+    try {
+      onSignedIn(await signIn(provider));
+    } catch (error) {
+      setMessage(getErrorMessage(error));
+    } finally {
+      setBusy('');
+    }
+  };
+
+  const handleSendEmailCode = async (event: FormEvent) => {
+    event.preventDefault();
+
+    if (!email.trim()) {
+      setMessage('Enter your email address.');
+      return;
+    }
+
+    setBusy('email-start');
+    setMessage('');
+    setDevCode('');
+
+    try {
+      const response = await startEmailSignIn(email.trim(), name.trim() || undefined);
+      setChallengeId(response.challengeId);
+      setMessage(`Login code sent to ${email.trim()}.`);
+      setDevCode(response.devCode || '');
+    } catch (error) {
+      setMessage(getErrorMessage(error));
+    } finally {
+      setBusy('');
+    }
+  };
+
+  const handleVerifyEmailCode = async (event: FormEvent) => {
+    event.preventDefault();
+
+    if (!challengeId || code.length !== 6) {
+      return;
+    }
+
+    setBusy('email-verify');
+    setMessage('');
+
+    try {
+      const session = await verifyEmailSignIn({
+        email: email.trim(),
+        name: name.trim() || undefined,
+        challengeId,
+        code
+      });
+      onSignedIn(session);
+    } catch (error) {
+      setMessage(getErrorMessage(error));
+    } finally {
+      setBusy('');
+    }
+  };
+
+  return (
+    <div className="auth-stack">
+      {showProviderButtons && (
+        <div className="auth-buttons">
+          <button type="button" onClick={() => void handleProviderSignIn('google')} disabled={busy === 'auth-google'}>
+            {busy === 'auth-google' ? <Loader2 className="spin" size={16} /> : <KeyRound size={16} />}
+            Google
+          </button>
+          <button type="button" onClick={() => void handleProviderSignIn('apple')} disabled={busy === 'auth-apple'}>
+            {busy === 'auth-apple' ? <Loader2 className="spin" size={16} /> : <KeyRound size={16} />}
+            Apple
+          </button>
+        </div>
+      )}
+
+      <form className="email-auth-form" onSubmit={challengeId ? handleVerifyEmailCode : handleSendEmailCode}>
+        <input
+          type="email"
+          value={email}
+          onChange={(event) => setEmail(event.target.value)}
+          placeholder="you@example.com"
+          disabled={Boolean(challengeId)}
+        />
+        {!challengeId && (
+          <input
+            value={name}
+            onChange={(event) => setName(event.target.value)}
+            placeholder="Name"
+          />
+        )}
+        {challengeId && (
+          <input
+            inputMode="numeric"
+            autoComplete="one-time-code"
+            value={code}
+            onChange={(event) => setCode(event.target.value.replace(/\D/g, '').slice(0, 6))}
+            placeholder="000000"
+          />
+        )}
+        <button type="submit" disabled={busy === 'email-start' || busy === 'email-verify'}>
+          {busy === 'email-start' || busy === 'email-verify' ? <Loader2 className="spin" size={16} /> : <Send size={16} />}
+          {challengeId ? 'Verify' : 'Email code'}
+        </button>
+      </form>
+      {message && <div className="inline-note">{message}</div>}
+      {devCode && <div className="inline-note">Local code: {devCode}</div>}
+    </div>
+  );
+}
+
+function DeviceVerificationPanel({
+  session,
+  onVerified,
+  onSignOut,
+  context
+}: {
+  session: AuthSession;
+  onVerified: () => void;
+  onSignOut: () => void;
+  context: 'account' | 'recipient' | 'document';
+}) {
+  const [challengeId, setChallengeId] = useState('');
+  const [code, setCode] = useState('');
+  const [busy, setBusy] = useState('check');
+  const [message, setMessage] = useState('');
+  const [devCode, setDevCode] = useState('');
+
+  useEffect(() => {
+    let mounted = true;
+    setBusy('check');
+    setMessage('');
+
+    checkDeviceSecurity()
+      .then((status) => {
+        if (!mounted) {
+          return;
+        }
+
+        if (!status.required || status.trusted) {
+          onVerified();
+          return;
+        }
+
+        setMessage('Send a verification code to continue.');
+      })
+      .catch((error) => {
+        if (mounted) {
+          setMessage(getErrorMessage(error));
+        }
+      })
+      .finally(() => {
+        if (mounted) {
+          setBusy('');
+        }
+      });
+
+    return () => {
+      mounted = false;
+    };
+  }, [session.email]);
+
+  const handleSendCode = async () => {
+    setBusy('send-code');
+    setMessage('');
+    setDevCode('');
+
+    try {
+      const response = await startDeviceVerification();
+      if (response.trusted) {
+        onVerified();
+        return;
+      }
+      setChallengeId(response.challengeId || '');
+      setMessage(`Verification code sent to ${session.email}.`);
+      setDevCode(response.devCode || '');
+    } catch (error) {
+      setMessage(getErrorMessage(error));
+    } finally {
+      setBusy('');
+    }
+  };
+
+  const handleVerifyCode = async (event: FormEvent) => {
+    event.preventDefault();
+
+    if (!challengeId || code.replace(/\D/g, '').length !== 6) {
+      return;
+    }
+
+    setBusy('verify-code');
+    setMessage('');
+
+    try {
+      await verifyDeviceCode(challengeId, code);
+      onVerified();
+    } catch (error) {
+      setMessage(getErrorMessage(error));
+    } finally {
+      setBusy('');
+    }
+  };
+
+  const heading =
+    context === 'document'
+      ? 'Verify device to open document'
+      : context === 'recipient'
+        ? 'Verify device for recipient access'
+        : 'Verify this device';
+
+  return (
+    <section className="complete-panel security-panel">
+      <ShieldCheck size={42} />
+      <h1>{heading}</h1>
+      <p>{session.email}</p>
+
+      <div className="security-actions">
+        <button type="button" onClick={() => void handleSendCode()} disabled={busy === 'check' || busy === 'send-code'}>
+          {busy === 'send-code' ? <Loader2 className="spin" size={16} /> : <Send size={16} />}
+          {challengeId ? 'Send new code' : 'Send code'}
+        </button>
+        <button type="button" className="secondary-button" onClick={onSignOut}>
+          <LogOut size={16} />
+          Sign out
+        </button>
+      </div>
+
+      <form className="security-code-form" onSubmit={handleVerifyCode}>
+        <label>
+          <span>Verification code</span>
+          <input
+            inputMode="numeric"
+            autoComplete="one-time-code"
+            value={code}
+            onChange={(event) => setCode(event.target.value.replace(/\D/g, '').slice(0, 6))}
+            placeholder="000000"
+          />
+        </label>
+        <button className="primary-button" type="submit" disabled={!challengeId || code.length !== 6 || busy === 'verify-code'}>
+          {busy === 'verify-code' ? <Loader2 className="spin" size={17} /> : <ShieldCheck size={17} />}
+          Verify
+        </button>
+      </form>
+
+      {message && <div className="inline-note">{message}</div>}
+      {devCode && <div className="inline-note">Local code: {devCode}</div>}
+    </section>
+  );
+}
+
+function FieldPlacementControl({
+  disabled,
+  field,
+  onChange
+}: {
+  disabled: boolean;
+  field: SignatureFieldPlacement;
+  onChange: (field: SignatureFieldPlacement) => void;
+}) {
+  return (
+    <div className="feature-box">
+      <div className="feature-box-heading">
+        <span>Signature field placement</span>
+        <small>{disabled ? 'Pro or Business' : `${field.xPercent}% / ${field.yPercent}%`}</small>
+      </div>
+      <div
+        className={`field-designer ${disabled ? 'disabled' : ''}`}
+        onPointerDown={(event) => {
+          if (disabled) {
+            return;
+          }
+
+          const rect = event.currentTarget.getBoundingClientRect();
+          const xPercent = Math.round(((event.clientX - rect.left) / rect.width) * 100);
+          const yPercent = Math.round((1 - (event.clientY - rect.top) / rect.height) * 100);
+          onChange({
+            ...field,
+            xPercent: clampPercent(xPercent),
+            yPercent: clampPercent(yPercent)
+          });
+        }}
+        role="slider"
+        aria-label="Signature field placement"
+        aria-valuetext={`${field.xPercent} percent across and ${field.yPercent} percent up the page`}
+      >
+        <div
+          className="field-marker"
+          style={{
+            left: `${field.xPercent}%`,
+            bottom: `${field.yPercent}%`,
+            width: `${field.widthPercent}%`
+          }}
+        >
+          Signature
+        </div>
+      </div>
+      <label>
+        <span>Field width</span>
+        <input
+          type="range"
+          min={35}
+          max={95}
+          value={field.widthPercent}
+          disabled={disabled}
+          onChange={(event) => onChange({ ...field, widthPercent: Number(event.target.value) })}
+        />
+      </label>
+    </div>
+  );
+}
+
+function FeatureSuitePanel({
+  busy,
+  capabilities,
+  company,
+  companyMember,
+  deliveries,
+  featureStatus,
+  onAddCompanyMember,
+  onApplyTemplate,
+  setCompanyMember,
+  templates
+}: {
+  busy: string;
+  capabilities: Record<string, boolean>;
+  company: CompanyProfile | null;
+  companyMember: { name: string; email: string; role: 'admin' | 'sender' | 'viewer' };
+  deliveries: EmailDelivery[];
+  featureStatus: FeatureStatus | null;
+  onAddCompanyMember: () => void;
+  onApplyTemplate: (template: DocumentTemplate) => void;
+  setCompanyMember: (member: { name: string; email: string; role: 'admin' | 'sender' | 'viewer' }) => void;
+  templates: DocumentTemplate[];
+}) {
+  return (
+    <section className="feature-suite-panel">
+      <div className="table-heading">
+        <div>
+          <span className="eyebrow">Feature suite</span>
+          <h2>Automation and team controls</h2>
+        </div>
+        <ShieldCheck size={22} />
+      </div>
+
+      <div className="feature-suite-grid">
+        <article className="feature-card">
+          <div className="manual-section-title">
+            <Send size={18} />
+            <h3>Delivery and reminders</h3>
+          </div>
+          <p>
+            Email {featureStatus?.emailDelivery.configured ? 'provider configured' : 'local outbox'}.
+          </p>
+          <div className="mini-list">
+            {deliveries.slice(0, 3).map((delivery) => (
+              <span key={delivery.id}>
+                {delivery.kind} from {delivery.senderEmail || delivery.ownerEmail} to {delivery.toEmail} - {delivery.status}
+              </span>
+            ))}
+            {!deliveries.length && <span>No delivery records yet.</span>}
+          </div>
+        </article>
+
+        <article className="feature-card">
+          <div className="manual-section-title">
+            <FileCheck2 size={18} />
+            <h3>Templates</h3>
+          </div>
+          <p>{capabilities.templates ? 'Save and reuse packet settings.' : 'Pro or Business required.'}</p>
+          <div className="template-chip-row">
+            {templates.slice(0, 4).map((template) => (
+              <button type="button" key={template.id} onClick={() => onApplyTemplate(template)}>
+                {template.name}
+              </button>
+            ))}
+            {!templates.length && <span>No templates saved.</span>}
+          </div>
+        </article>
+
+        <article className="feature-card">
+          <div className="manual-section-title">
+            <Users size={18} />
+            <h3>Company admin</h3>
+          </div>
+          <p>{capabilities.companyAdmin ? company?.companyName || 'Business admin ready.' : 'Business tier required.'}</p>
+          <div className="company-form">
+            <input
+              value={companyMember.name}
+              onChange={(event) => setCompanyMember({ ...companyMember, name: event.target.value })}
+              placeholder="Member name"
+              disabled={!capabilities.companyAdmin}
+            />
+            <input
+              type="email"
+              value={companyMember.email}
+              onChange={(event) => setCompanyMember({ ...companyMember, email: event.target.value })}
+              placeholder="member@example.com"
+              disabled={!capabilities.companyAdmin}
+            />
+            <select
+              value={companyMember.role}
+              onChange={(event) =>
+                setCompanyMember({ ...companyMember, role: event.target.value as 'admin' | 'sender' | 'viewer' })
+              }
+              disabled={!capabilities.companyAdmin}
+            >
+              <option value="viewer">Viewer</option>
+              <option value="sender">Sender</option>
+              <option value="admin">Admin</option>
+            </select>
+            <button type="button" onClick={onAddCompanyMember} disabled={!capabilities.companyAdmin || busy === 'company-member'}>
+              {busy === 'company-member' ? <Loader2 className="spin" size={16} /> : <Users size={16} />}
+              Invite
+            </button>
+          </div>
+        </article>
+
+        <article className="feature-card">
+          <div className="manual-section-title">
+            <Fingerprint size={18} />
+            <h3>Provider status</h3>
+          </div>
+          <div className="provider-list">
+            <span>Receipts: {featureStatus?.receiptVerification.configured ? 'configured' : 'provider required'}</span>
+            <span>ID: {featureStatus?.identityVerification.configured ? 'provider configured' : 'self-attestation'}</span>
+            <span>Objects: {featureStatus?.objectStorage.mode || 'local_object_store'}</span>
+            <span>CA PDF: {featureStatus?.certificateAuthoritySignatures.configured ? 'configured' : 'certificate required'}</span>
+          </div>
+        </article>
+      </div>
+    </section>
+  );
+}
+
+function InstructionManual() {
+  return (
+    <section className="manual-panel" aria-labelledby="manual-title">
+      <div className="manual-heading">
+        <div>
+          <span className="eyebrow">Instruction manual</span>
+          <h2 id="manual-title">How Forg3 Sign works</h2>
+        </div>
+        <BookOpen size={24} />
+      </div>
+
+      <div className="manual-grid">
+        <article className="manual-section">
+          <div className="manual-section-title">
+            <Upload size={18} />
+            <h3>Send a document for signature</h3>
+          </div>
+          <ol>
+            <li>Sign in with email code, Google, or Apple.</li>
+            <li>Activate a subscription tier.</li>
+            <li>Choose a PDF, add a document title, signers, field placement, identity settings, and expiration window.</li>
+            <li>Create the packet.</li>
+            <li>Forg3 creates signer-specific recipient links and delivers them by the configured email provider.</li>
+          </ol>
+          <p>
+            Pro and Business can route a packet to multiple signers. Pay Per Signature keeps a single signer per packet.
+          </p>
+        </article>
+
+        <article className="manual-section">
+          <div className="manual-section-title">
+            <PenLine size={18} />
+            <h3>Signer experience</h3>
+          </div>
+          <ol>
+            <li>The signer opens the link before it expires.</li>
+            <li>The signer reviews the PDF.</li>
+            <li>The signer draws with a finger, stylus, mouse, or touchpad, or uses the typed-signature option.</li>
+            <li>The signer types the assigned name, completes ID attestation when required, and accepts consent.</li>
+            <li>Forg3 seals that signer link. The signed PDF is generated when every required signer completes.</li>
+          </ol>
+          <p>
+            A completed signing link cannot be reused. Expired or voided links are unavailable to the signer.
+          </p>
+        </article>
+
+        <article className="manual-section">
+          <div className="manual-section-title">
+            <FileCheck2 size={18} />
+            <h3>Storage and signed copies</h3>
+          </div>
+          <p>
+            The current build stores document metadata in the server store and moves original/signed PDF data into the
+            local object store. Production can swap this object layer to private cloud storage without changing the user
+            flow.
+          </p>
+          <p>
+            After signing, the signer can download a copy from the completion screen. The owner sees the packet marked
+            signed in the dashboard and can download the signed PDF from the document row.
+          </p>
+        </article>
+
+        <article className="manual-section">
+          <div className="manual-section-title">
+            <LinkIcon size={18} />
+            <h3>Sharing rules</h3>
+          </div>
+          <p>
+            Forg3 creates hash-backed signer links and records automatic email delivery attempts through the configured
+            provider.
+          </p>
+          <p>
+            If a link expires before signing, create a new link from the document row. If the packet should no longer be
+            signed, void it.
+          </p>
+        </article>
+
+        <article className="manual-section">
+          <div className="manual-section-title">
+            <Building2 size={18} />
+            <h3>Business document use</h3>
+          </div>
+          <p>
+            Purchase orders, vendor agreements, approvals, onboarding forms, waivers, work orders, invoices, estimates,
+            and internal acknowledgements can be sent as PDFs when the sender is comfortable using an electronic
+            signature workflow.
+          </p>
+          <p>
+            Forg3 creates an electronic signature stamp and audit certificate page. Business exposes certificate-authority
+            provider readiness; live CA-backed PAdES signing still requires a configured signing certificate/provider.
+          </p>
+        </article>
+
+        <article className="manual-section">
+          <div className="manual-section-title">
+            <ReceiptText size={18} />
+            <h3>W-2, 1099, and payroll forms</h3>
+          </div>
+          <p>
+            Forg3 can capture a signature or consent acknowledgement on a PDF. Payroll and tax forms have additional IRS,
+            SSA, state, employer, recipient-consent, delivery, filing, and retention rules. Use this build only as a
+            generic PDF signing tool unless those compliance requirements are reviewed and configured for the company.
+          </p>
+          <p>
+            Practical note: employees usually receive W-2s; they do not normally sign W-2s. Contractors commonly sign
+            W-9s, while 1099 recipients may need to consent before receiving electronic copies.
+          </p>
+        </article>
+      </div>
+
+      <div className="manual-tier-block">
+        <div className="manual-section-title">
+          <CreditCard size={18} />
+          <h3>Tier matrix</h3>
+        </div>
+
+        <div className="tier-table" role="table" aria-label="Forg3 Sign subscription tiers">
+          <div className="tier-row tier-head" role="row">
+            <span role="columnheader">Feature</span>
+            <span role="columnheader">Pay Per Signature</span>
+            <span role="columnheader">Pro</span>
+            <span role="columnheader">Business</span>
+          </div>
+          {manualTierRows.map((row) => (
+            <div className="tier-row" role="row" key={row.feature}>
+              <span role="cell">{row.feature}</span>
+              <span role="cell">{row.payPerSignature}</span>
+              <span role="cell">{row.pro}</span>
+              <span role="cell">{row.business}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="manual-limitations">
+        <strong>Provider configuration required:</strong>
+        <span>
+          live email sending, government/third-party ID checks, live App Store/Play/Stripe receipt verification, cloud
+          object storage, and certificate-authority backed PDF signatures require external credentials or certificates.
+          Local/demo flows are built into the app for development and testing.
+        </span>
+      </div>
+    </section>
   );
 }
 
@@ -605,45 +1838,53 @@ function SubscriptionPanel({
       <div className="billing-summary">
         <div>
           <span className="eyebrow">Subscription</span>
-          <h2>{activePlan ? activePlan.name : 'Choose a plan'}</h2>
+          <h2>{getEntitlementTitle(entitlement)}</h2>
           <p>
-            {activePlan
-              ? `Active until ${formatDate(entitlement?.subscription?.renewsAt || '')}`
-              : 'A subscription is required to create signing links.'}
+            {getEntitlementDescription(entitlement)}
           </p>
         </div>
         <span className={`billing-badge ${entitlement?.active ? 'active' : 'inactive'}`}>
           <CreditCard size={15} />
-          {entitlement?.active ? 'active' : entitlement?.status || 'inactive'}
+          {entitlement?.creatorAccess ? 'creator' : entitlement?.active ? 'active' : entitlement?.status || 'inactive'}
         </span>
       </div>
 
-      {activePlan ? (
+      {entitlement?.active ? (
         <div className="billing-active-row">
           <div className="billing-active-copy">
-            <strong>
-              {activePlan.priceLabel}/{activePlan.cadence}
-            </strong>
-            <span>{activePlan.seatLimit} owner seat{activePlan.seatLimit === 1 ? '' : 's'}</span>
-            {activePlan.usagePriceLabel && <span>+ {activePlan.usagePriceLabel}</span>}
-            {activePlan.billingNote && <span>{activePlan.billingNote}</span>}
+            <strong>{getEntitlementPriceLine(entitlement)}</strong>
+            {activePlan ? (
+              <>
+                <span>{activePlan.seatLimit} owner seat{activePlan.seatLimit === 1 ? '' : 's'}</span>
+                <span>{activePlan.unlimitedAccess ? 'Unlimited access enabled' : 'Limited tier access'}</span>
+                {activePlan.usagePriceLabel && <span>+ {activePlan.usagePriceLabel}</span>}
+                {activePlan.billingNote && <span>{activePlan.billingNote}</span>}
+              </>
+            ) : (
+              <>
+                <span>Creator-only unlimited access</span>
+                <span>No paid subscription required for this account.</span>
+              </>
+            )}
           </div>
-          {activePlan.billingModel === 'metered' && usageSummary && (
+          {activePlan?.billingModel === 'metered' && usageSummary && (
             <div className="billing-meter">
               <span>Metered signatures</span>
               <strong>{usageSummary.signatureCount}</strong>
               <small>{usageSummary.totalUsageLabel} usage total</small>
             </div>
           )}
-          <button
-            className="secondary-button"
-            type="button"
-            onClick={onCancel}
-            disabled={busy === 'cancel-subscription'}
-          >
-            {busy === 'cancel-subscription' ? <Loader2 className="spin" size={16} /> : <X size={16} />}
-            Cancel
-          </button>
+          {activePlan && (
+            <button
+              className="secondary-button"
+              type="button"
+              onClick={onCancel}
+              disabled={busy === 'cancel-subscription'}
+            >
+              {busy === 'cancel-subscription' ? <Loader2 className="spin" size={16} /> : <X size={16} />}
+              Cancel
+            </button>
+          )}
         </div>
       ) : (
         <div className="plan-grid">
@@ -679,22 +1920,46 @@ function SubscriptionPanel({
   );
 }
 
-function SignerScreen({ token }: { token: string }) {
+type SigningAccess =
+  | { kind: 'token'; token: string }
+  | { kind: 'assigned'; documentId: string; signerId: string };
+
+function SignerScreen({ access }: { access: SigningAccess }) {
+  const [session, setSession] = useState<AuthSession | null>(() => getStoredSession());
+  const [deviceVerified, setDeviceVerified] = useState(false);
   const [document, setDocument] = useState<PublicSigningDocument | null>(null);
   const [fileDataUrl, setFileDataUrl] = useState('');
   const [signatureDataUrl, setSignatureDataUrl] = useState<string | null>(null);
   const [signerNameConfirmation, setSignerNameConfirmation] = useState('');
+  const [signerEmailConfirmation, setSignerEmailConfirmation] = useState('');
   const [consent, setConsent] = useState(false);
   const [busy, setBusy] = useState('load');
   const [message, setMessage] = useState('');
   const [signedResult, setSignedResult] = useState<SignedDocumentResponse | null>(null);
+  const requiresAuth = true;
 
   useEffect(() => {
     let mounted = true;
+
+    if (!session || !deviceVerified) {
+      setBusy('');
+      return () => {
+        mounted = false;
+      };
+    }
+
     setBusy('load');
     setMessage('');
+    setDocument(null);
+    setFileDataUrl('');
+    setSignedResult(null);
 
-    getPublicSigningDocument(token)
+    const request =
+      access.kind === 'token'
+        ? getPublicSigningDocument(access.token)
+        : getAssignedSigningDocument(access.documentId, access.signerId);
+
+    request
       .then((response) => {
         if (!mounted) {
           return;
@@ -717,12 +1982,36 @@ function SignerScreen({ token }: { token: string }) {
     return () => {
       mounted = false;
     };
-  }, [token]);
+  }, [access, session, deviceVerified]);
+
+  useEffect(() => {
+    setDeviceVerified(false);
+  }, [session?.uid, session?.email]);
+
+  const handleSignIn = async (provider: 'google' | 'apple') => {
+    setBusy(`auth-${provider}`);
+    setMessage('');
+
+    try {
+      const nextSession = await signIn(provider);
+      setSession(nextSession);
+    } catch (error) {
+      setMessage(getErrorMessage(error));
+    } finally {
+      setBusy('');
+    }
+  };
 
   const handleSign = async (event: FormEvent) => {
     event.preventDefault();
 
-    if (!document || !signatureDataUrl || !consent || !namesMatch(signerNameConfirmation, document.signerName)) {
+    if (
+      !document ||
+      !signatureDataUrl ||
+      !consent ||
+      !namesMatch(signerNameConfirmation, document.signerName) ||
+      (document.identityVerificationRequired && signerEmailConfirmation.trim().toLowerCase() !== document.signerEmail.toLowerCase())
+    ) {
       return;
     }
 
@@ -730,13 +2019,18 @@ function SignerScreen({ token }: { token: string }) {
     setMessage('');
 
     try {
-      const result = await signDocument(token, {
+      const payload = {
         signatureDataUrl,
         signerNameConfirmation,
+        signerEmailConfirmation,
         consentText: `${document.signerName} accepted electronic signature consent at ${new Date().toISOString()}`
-      });
+      };
+      const result =
+        access.kind === 'token'
+          ? await signDocument(access.token, payload)
+          : await signAssignedDocument(access.documentId, access.signerId, payload);
       setSignedResult(result);
-      setMessage('Signed. This link is sealed.');
+      setMessage(result.signedFileDataUrl ? 'Signed. This link is sealed.' : 'Your signature is complete.');
     } catch (error) {
       setMessage(getErrorMessage(error));
     } finally {
@@ -758,27 +2052,54 @@ function SignerScreen({ token }: { token: string }) {
         </a>
         <span className="runtime-pill">
           <Lock size={15} />
-          Single-use link
+          Email-verified access
         </span>
       </header>
 
-      {busy === 'load' ? (
+      {!session ? (
+        <section className="complete-panel inbox-auth-panel">
+          <Inbox size={42} />
+          <h1>Sign in to open this document</h1>
+          <p>Use the email address assigned by the sender.</p>
+          <AuthControls onSignedIn={setSession} />
+          {message && <div className="inline-note">{message}</div>}
+        </section>
+      ) : !deviceVerified ? (
+        <DeviceVerificationPanel
+          session={session}
+          onVerified={() => setDeviceVerified(true)}
+          onSignOut={() => {
+            clearStoredSession();
+            setSession(null);
+            setDeviceVerified(false);
+            setDocument(null);
+            setFileDataUrl('');
+          }}
+          context="document"
+        />
+      ) : busy === 'load' ? (
         <div className="center-state">
           <Loader2 className="spin" size={28} />
         </div>
       ) : signedResult ? (
         <section className="complete-panel">
           <CheckCircle size={42} />
-          <h1>Document signed</h1>
-          <p>The signing link has been sealed and will not reopen this packet.</p>
-          <button
-            type="button"
-            className="primary-button"
-            onClick={() => downloadDataUrl(signedResult.signedFileDataUrl, signedResult.fileName)}
-          >
-            <Download size={17} />
-            Download copy
-          </button>
+          <h1>{signedResult.signedFileDataUrl ? 'Document signed' : 'Signature complete'}</h1>
+          <p>
+            {signedResult.signedFileDataUrl
+              ? 'The signing link has been sealed and will not reopen this packet.'
+              : `${signedResult.pendingSignerCount || 0} signer${signedResult.pendingSignerCount === 1 ? '' : 's'} still need to complete this packet.`}
+          </p>
+          {signedResult.signedFileDataUrl && (
+            <button
+              type="button"
+              className="primary-button"
+              onClick={() => downloadDataUrl(signedResult.signedFileDataUrl!, signedResult.fileName)}
+            >
+              <Download size={17} />
+              Download copy
+            </button>
+          )}
         </section>
       ) : message && !document ? (
         <section className="complete-panel error-panel">
@@ -804,6 +2125,7 @@ function SignerScreen({ token }: { token: string }) {
               <span className="eyebrow">Signer</span>
               <h2>{document.signerName}</h2>
               <p>{document.signerEmail}</p>
+              {document.signerRole && <p>{document.signerRole}</p>}
               <small>Expires {formatDate(document.expiresAt)}</small>
             </div>
 
@@ -822,6 +2144,18 @@ function SignerScreen({ token }: { token: string }) {
               />
             </label>
 
+            {document.identityVerificationRequired && (
+              <label>
+                <span>Confirm signer email</span>
+                <input
+                  type="email"
+                  value={signerEmailConfirmation}
+                  onChange={(event) => setSignerEmailConfirmation(event.target.value)}
+                  placeholder={document.signerEmail}
+                />
+              </label>
+            )}
+
             <label className="consent-row">
               <input type="checkbox" checked={consent} onChange={(event) => setConsent(event.target.checked)} />
               <span>I agree to sign this document electronically.</span>
@@ -834,6 +2168,8 @@ function SignerScreen({ token }: { token: string }) {
                 !signatureDataUrl ||
                 !consent ||
                 !namesMatch(signerNameConfirmation, document.signerName) ||
+                (document.identityVerificationRequired &&
+                  signerEmailConfirmation.trim().toLowerCase() !== document.signerEmail.toLowerCase()) ||
                 busy === 'sign'
               }
             >
@@ -882,6 +2218,23 @@ async function refreshDocuments(
   }
 }
 
+async function refreshSignerInbox(
+  setDocuments: (documents: SignerInboxDocument[]) => void,
+  setMessage: (message: string) => void,
+  setBusy?: (busy: string) => void
+) {
+  setBusy?.('inbox');
+
+  try {
+    const response = await listSignerDocuments();
+    setDocuments(response.documents);
+  } catch (error) {
+    setMessage(getErrorMessage(error));
+  } finally {
+    setBusy?.('');
+  }
+}
+
 async function refreshSubscription(
   setEntitlement: (entitlement: SubscriptionEntitlement) => void,
   setPlans: (plans: SubscriptionPlan[]) => void,
@@ -896,6 +2249,50 @@ async function refreshSubscription(
   }
 }
 
+async function refreshFeatureSuite(
+  setFeatureStatus: (featureStatus: FeatureStatus) => void,
+  setCapabilities: (capabilities: Record<string, boolean>) => void,
+  setDeliveries: (deliveries: EmailDelivery[]) => void,
+  setTemplates: (templates: DocumentTemplate[]) => void,
+  setCompany: (company: CompanyProfile | null) => void
+) {
+  try {
+    const features = await getFeatureStatus();
+    setFeatureStatus(features.featureStatus);
+    setCapabilities(features.capabilities);
+
+    const deliveriesResponse = await listEmailDeliveries();
+    setDeliveries(deliveriesResponse.deliveries);
+
+    if (features.capabilities.templates) {
+      const templatesResponse = await listTemplates();
+      setTemplates(templatesResponse.templates);
+    } else {
+      setTemplates([]);
+    }
+
+    if (features.capabilities.companyAdmin) {
+      const companyResponse = await getCompany();
+      setCompany(companyResponse.company);
+    } else {
+      setCompany(null);
+    }
+  } catch {
+    setCapabilities({});
+  }
+}
+
+function linksFromResponse(response: { document: DocumentSummary; signingLinks?: Array<{ signerName: string; signerEmail: string; signingPath: string; signingUrl?: string }> }) {
+  return (response.signingLinks || [])
+    .filter((link) => link.signingPath)
+    .map((link) => ({
+      documentId: response.document.id,
+      signerName: link.signerName,
+      signerEmail: link.signerEmail,
+      url: link.signingUrl || makeSigningUrl(link.signingPath)
+    }));
+}
+
 async function copyText(value: string, setMessage: (message: string) => void) {
   await navigator.clipboard.writeText(value);
   setMessage('Copied.');
@@ -906,6 +2303,18 @@ function parseRoute(): RouteState {
 
   if (hash.startsWith('sign/')) {
     return { kind: 'sign', token: hash.slice('sign/'.length) };
+  }
+
+  if (hash.startsWith('inbox/sign/')) {
+    const [, , documentId, signerId] = hash.split('/');
+
+    if (documentId && signerId) {
+      return { kind: 'assigned-sign', documentId, signerId };
+    }
+  }
+
+  if (hash === 'inbox') {
+    return { kind: 'inbox' };
   }
 
   return { kind: 'dashboard' };
@@ -928,6 +2337,46 @@ function formatDate(value: string) {
 
 function getErrorMessage(error: unknown) {
   return error instanceof Error ? error.message : 'Something went wrong.';
+}
+
+function getEntitlementTitle(entitlement: SubscriptionEntitlement | null) {
+  if (entitlement?.creatorAccess) {
+    return 'Creator Unlimited';
+  }
+
+  if (entitlement?.active && entitlement.plan) {
+    return entitlement.plan.name;
+  }
+
+  return 'Choose a plan';
+}
+
+function getEntitlementDescription(entitlement: SubscriptionEntitlement | null) {
+  if (entitlement?.creatorAccess) {
+    return 'Unlimited creator access is active for this account.';
+  }
+
+  if (entitlement?.active && entitlement.subscription) {
+    return `Active until ${formatDate(entitlement.subscription.renewsAt)}`;
+  }
+
+  return 'A subscription is required to create signing links.';
+}
+
+function getEntitlementPriceLine(entitlement: SubscriptionEntitlement) {
+  if (entitlement.creatorAccess) {
+    return 'Creator pass';
+  }
+
+  return entitlement.plan ? `${entitlement.plan.priceLabel}/${entitlement.plan.cadence}` : 'Active access';
+}
+
+function clampPercent(value: number) {
+  if (!Number.isFinite(value)) {
+    return 0;
+  }
+
+  return Math.min(Math.max(Math.round(value), 0), 100);
 }
 
 function getBillingProviderForRuntime() {

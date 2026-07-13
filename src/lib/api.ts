@@ -1,14 +1,19 @@
 import type {
   CreateDocumentInput,
+  CompanyProfile,
+  DocumentTemplate,
   DocumentSummary,
+  EmailDelivery,
+  FeatureStatus,
   PlanId,
   PublicSigningDocument,
+  SignerInboxDocument,
   SignedDocumentResponse,
   SigningLinkResponse,
   SubscriptionResponse,
   BillingProvider
 } from './types';
-import { getAuthToken } from './auth';
+import { getAuthToken, getDeviceId, getDeviceName } from './auth';
 
 const apiBase = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/$/, '');
 
@@ -25,6 +30,13 @@ export async function createDocument(input: CreateDocumentInput) {
 
 export async function getSubscription() {
   return request<SubscriptionResponse>('/api/subscription');
+}
+
+export async function getFeatureStatus() {
+  return request<{
+    featureStatus: FeatureStatus;
+    capabilities: Record<string, boolean>;
+  }>('/api/features');
 }
 
 export async function startSubscription(input: {
@@ -50,6 +62,12 @@ export async function rotateSigningLink(id: string, expiresInHours: number) {
   });
 }
 
+export async function sendReminder(id: string) {
+  return request<SigningLinkResponse & { deliveries: EmailDelivery[] }>(`/api/documents/${id}/remind`, {
+    method: 'POST'
+  });
+}
+
 export async function voidDocument(id: string) {
   return request<{ document: DocumentSummary }>(`/api/documents/${id}/void`, {
     method: 'POST'
@@ -60,11 +78,22 @@ export async function getPublicSigningDocument(token: string) {
   return request<{ document: PublicSigningDocument; fileDataUrl: string }>(`/api/signing/${token}`);
 }
 
+export async function listSignerDocuments() {
+  return request<{ documents: SignerInboxDocument[] }>('/api/signer/documents');
+}
+
+export async function getAssignedSigningDocument(documentId: string, signerId: string) {
+  return request<{ document: PublicSigningDocument; fileDataUrl: string }>(
+    `/api/signer/documents/${documentId}/${signerId}`
+  );
+}
+
 export async function signDocument(
   token: string,
   payload: {
     signatureDataUrl: string;
     signerNameConfirmation: string;
+    signerEmailConfirmation?: string;
     consentText: string;
   }
 ) {
@@ -74,8 +103,61 @@ export async function signDocument(
   });
 }
 
+export async function signAssignedDocument(
+  documentId: string,
+  signerId: string,
+  payload: {
+    signatureDataUrl: string;
+    signerNameConfirmation: string;
+    signerEmailConfirmation?: string;
+    consentText: string;
+  }
+) {
+  return request<SignedDocumentResponse>(`/api/signer/documents/${documentId}/${signerId}/sign`, {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  });
+}
+
 export async function getSignedDocument(id: string) {
   return request<Omit<SignedDocumentResponse, 'document'>>(`/api/documents/${id}/signed`);
+}
+
+export async function listEmailDeliveries() {
+  return request<{ deliveries: EmailDelivery[] }>('/api/email-deliveries');
+}
+
+export async function listTemplates() {
+  return request<{ templates: DocumentTemplate[] }>('/api/templates');
+}
+
+export async function createTemplate(input: {
+  name: string;
+  title: string;
+  signers: Array<{ name: string; email: string; role?: string }>;
+  expiresInHours: number;
+  signatureField: CreateDocumentInput['signatureField'];
+  identityVerificationRequired: boolean;
+}) {
+  return request<{ template: DocumentTemplate }>('/api/templates', {
+    method: 'POST',
+    body: JSON.stringify(input)
+  });
+}
+
+export async function getCompany() {
+  return request<{ company: CompanyProfile }>('/api/company');
+}
+
+export async function addCompanyMember(input: {
+  name: string;
+  email: string;
+  role: 'admin' | 'sender' | 'viewer';
+}) {
+  return request<{ company: CompanyProfile }>('/api/company/members', {
+    method: 'POST',
+    body: JSON.stringify(input)
+  });
 }
 
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
@@ -84,6 +166,8 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
     ...init,
     headers: {
       'Content-Type': 'application/json',
+      'X-Forg3-Device-Id': getDeviceId(),
+      'X-Forg3-Device-Name': getDeviceName(),
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...(init.headers || {})
     }

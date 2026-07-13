@@ -1,6 +1,22 @@
 import crypto from 'node:crypto';
 import { PDFDocument, StandardFonts, rgb, type PDFFont } from 'pdf-lib';
 
+interface SealSignerInput {
+  signerName: string;
+  signerEmail: string;
+  signatureDataUrl: string;
+  signedAt: string;
+  role?: string;
+  identityVerificationStatus?: string;
+}
+
+interface SignatureFieldInput {
+  page: 'last';
+  xPercent: number;
+  yPercent: number;
+  widthPercent: number;
+}
+
 export async function sealPdfWithSignature(input: {
   fileDataUrl: string;
   signatureDataUrl: string;
@@ -10,23 +26,51 @@ export async function sealPdfWithSignature(input: {
   documentHash: string;
   signedAt: string;
 }) {
+  return sealPdfWithSignatures({
+    fileDataUrl: input.fileDataUrl,
+    title: input.title,
+    documentHash: input.documentHash,
+    signers: [
+      {
+        signerName: input.signerName,
+        signerEmail: input.signerEmail,
+        signatureDataUrl: input.signatureDataUrl,
+        signedAt: input.signedAt
+      }
+    ]
+  });
+}
+
+export async function sealPdfWithSignatures(input: {
+  fileDataUrl: string;
+  title: string;
+  documentHash: string;
+  signers: SealSignerInput[];
+  signatureField?: SignatureFieldInput;
+  certificateAuthorityStatus?: string;
+}) {
+  if (!input.signers.length) {
+    throw new Error('At least one signer is required.');
+  }
+
   const pdfBytes = dataUrlToBytes(input.fileDataUrl, 'data:application/pdf;base64,');
   const pdfDoc = await PDFDocument.load(pdfBytes, { ignoreEncryption: true });
   const pages = pdfDoc.getPages();
   const page = pages[pages.length - 1];
-  const { width } = page.getSize();
-  const signatureImage = await pdfDoc.embedPng(dataUrlToBytes(input.signatureDataUrl, 'data:image/png;base64,'));
+  const { width, height } = page.getSize();
   const regularFont = await pdfDoc.embedFont(StandardFonts.Helvetica);
   const boldFont = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
-  const panelWidth = Math.min(width - 48, 520);
-  const panelX = 24;
-  const panelY = 24;
+  const field = input.signatureField || { page: 'last' as const, xPercent: 4, yPercent: 4, widthPercent: 88 };
+  const panelWidth = clamp((width * field.widthPercent) / 100, 280, width - 48);
+  const panelHeight = clamp(56 + input.signers.length * 66, 122, Math.max(122, height - 48));
+  const panelX = clamp(((width - panelWidth) * field.xPercent) / 100, 24, Math.max(24, width - panelWidth - 24));
+  const panelY = clamp(((height - panelHeight) * field.yPercent) / 100, 24, Math.max(24, height - panelHeight - 24));
 
   page.drawRectangle({
     x: panelX,
     y: panelY,
     width: panelWidth,
-    height: 116,
+    height: panelHeight,
     color: rgb(1, 1, 1),
     borderColor: rgb(0.09, 0.42, 0.53),
     borderWidth: 1.2,
@@ -34,41 +78,56 @@ export async function sealPdfWithSignature(input: {
   });
   page.drawText('Electronic signature', {
     x: panelX + 18,
-    y: panelY + 92,
+    y: panelY + panelHeight - 24,
     size: 11,
     font: boldFont,
     color: rgb(0.05, 0.07, 0.09)
   });
-  page.drawImage(signatureImage, {
-    x: panelX + 18,
-    y: panelY + 38,
-    width: 152,
-    height: 42
-  });
-  page.drawText(`Signer: ${input.signerName} <${input.signerEmail}>`, {
-    x: panelX + 190,
-    y: panelY + 68,
-    size: 8.5,
-    font: regularFont,
-    color: rgb(0.16, 0.18, 0.22)
-  });
-  page.drawText(`Signed: ${input.signedAt}`, {
-    x: panelX + 190,
-    y: panelY + 51,
-    size: 8.5,
-    font: regularFont,
-    color: rgb(0.16, 0.18, 0.22)
-  });
+
+  let rowY = panelY + panelHeight - 82;
+  for (const signer of input.signers) {
+    const signatureImage = await pdfDoc.embedPng(dataUrlToBytes(signer.signatureDataUrl, 'data:image/png;base64,'));
+
+    page.drawImage(signatureImage, {
+      x: panelX + 18,
+      y: rowY - 8,
+      width: 142,
+      height: 38
+    });
+    page.drawText(`${signer.signerName} <${signer.signerEmail}>`, {
+      x: panelX + 180,
+      y: rowY + 18,
+      size: 8.5,
+      font: regularFont,
+      color: rgb(0.16, 0.18, 0.22)
+    });
+    page.drawText(`Signed: ${signer.signedAt}`, {
+      x: panelX + 180,
+      y: rowY + 2,
+      size: 8.5,
+      font: regularFont,
+      color: rgb(0.16, 0.18, 0.22)
+    });
+    page.drawText(`Role: ${signer.role || 'Signer'}`, {
+      x: panelX + 180,
+      y: rowY - 14,
+      size: 8.5,
+      font: regularFont,
+      color: rgb(0.16, 0.18, 0.22)
+    });
+    rowY -= 66;
+  }
+
   page.drawText(`Original SHA-256: ${input.documentHash.slice(0, 32)}...`, {
-    x: panelX + 190,
-    y: panelY + 34,
+    x: panelX + 18,
+    y: panelY + 25,
     size: 8.5,
     font: regularFont,
     color: rgb(0.16, 0.18, 0.22)
   });
   page.drawText(`Document: ${truncate(input.title, 55)}`, {
     x: panelX + 18,
-    y: panelY + 15,
+    y: panelY + 10,
     size: 8.5,
     font: regularFont,
     color: rgb(0.16, 0.18, 0.22)
@@ -79,9 +138,9 @@ export async function sealPdfWithSignature(input: {
   }, regularFont, boldFont);
 
   pdfDoc.setTitle(`${input.title} - signed`);
-  pdfDoc.setSubject(`Signed electronically by ${input.signerName}`);
+  pdfDoc.setSubject(`Signed electronically by ${input.signers.map((signer) => signer.signerName).join(', ')}`);
   pdfDoc.setProducer('Forg3 Sign');
-  pdfDoc.setModificationDate(new Date(input.signedAt));
+  pdfDoc.setModificationDate(new Date(input.signers[input.signers.length - 1].signedAt));
 
   const signedBytes = await pdfDoc.save();
   return `data:application/pdf;base64,${Buffer.from(signedBytes).toString('base64')}`;
@@ -103,11 +162,10 @@ function drawAuditCertificate(
   pdfDoc: PDFDocument,
   input: {
     title: string;
-    signerName: string;
-    signerEmail: string;
     documentHash: string;
-    signedAt: string;
+    signers: SealSignerInput[];
     eventHash: string;
+    certificateAuthorityStatus?: string;
   },
   regularFont: PDFFont,
   boldFont: PDFFont
@@ -135,11 +193,12 @@ function drawAuditCertificate(
 
   const rows = [
     ['Document', input.title],
-    ['Signer', `${input.signerName} <${input.signerEmail}>`],
-    ['Signed at', input.signedAt],
+    ['Signers', input.signers.map((signer) => `${signer.signerName} <${signer.signerEmail}> at ${signer.signedAt}`).join('; ')],
     ['Original SHA-256', input.documentHash],
     ['Audit event hash', input.eventHash],
     ['Signature method', 'Drawn or typed electronic signature image sealed server-side'],
+    ['Identity verification', input.signers.map((signer) => `${signer.signerEmail}: ${signer.identityVerificationStatus || 'not_required'}`).join('; ')],
+    ['Certificate authority status', input.certificateAuthorityStatus || 'Not configured for this packet'],
     ['Token status', 'Single-use signing token consumed after completion']
   ];
 
@@ -170,23 +229,33 @@ function drawAuditCertificate(
 
 function createAuditEventHash(input: {
   title: string;
-  signerName: string;
-  signerEmail: string;
   documentHash: string;
-  signedAt: string;
+  signers: SealSignerInput[];
 }) {
   return crypto
     .createHash('sha256')
     .update(
       JSON.stringify({
         title: input.title,
-        signerName: input.signerName,
-        signerEmail: input.signerEmail,
         documentHash: input.documentHash,
-        signedAt: input.signedAt
+        signers: input.signers.map((signer) => ({
+          signerName: signer.signerName,
+          signerEmail: signer.signerEmail,
+          signedAt: signer.signedAt,
+          role: signer.role,
+          identityVerificationStatus: signer.identityVerificationStatus
+        }))
       })
     )
     .digest('hex');
+}
+
+function clamp(value: number, min: number, max: number) {
+  if (!Number.isFinite(value)) {
+    return min;
+  }
+
+  return Math.min(Math.max(value, min), max);
 }
 
 function wrapText(value: string, maxLength: number) {

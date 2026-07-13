@@ -22,24 +22,39 @@ Perform a full product, frontend, backend, mobile readiness, and security audit 
 - Token hash removed after signing.
 - Touch-ready signature canvas and signed-PDF stamping.
 - Google/Apple auth buttons with Firebase-ready configuration.
+- First-party email-code login fallback with signed app tokens when Firebase is not configured.
 - iOS and Android Capacitor projects generated and synced.
+- Automatic signing-link email provider delivery with fallback local delivery records.
+- Email-code device 2FA for account, recipient inbox, and signing-room access.
+- Assigned-recipient signing URLs that require the signed-in email to match the signer before the PDF opens.
+- Multi-signer routing with per-signer single-use tokens.
+- Drag/touch signature-field placement stored on each packet.
+- Business-tier ID attestation gate for signers.
+- Local object-store abstraction for original and signed PDFs.
+- Pro/Business packet templates.
+- Business company admin member invitations.
+- Provider-status surface for email, identity verification, receipt verification, object storage, and CA-backed PDF signing.
 
 ## Current Verification Status
 
 - `npm run build` passes.
 - `npx cap sync` passes and copies web assets into the native shells.
-- `npm audit --audit-level=high` reports 0 vulnerabilities.
+- `npm audit --audit-level=high` exits 0 for high/critical findings, but current output still shows moderate transitive `firebase-admin`/Google dependency advisories.
 - Browser verification confirmed the pay-per-signature plan card, active metered billing row, signer touch/touchpad cue, and pointer-stroke signing behavior.
 - API verification confirmed a completed signature under the pay-per-signature plan records `$0.99` usage and the used signing link becomes unavailable.
 - iOS simulator build passes with `xcodebuild -workspace ios/App/App.xcworkspace -scheme App -configuration Debug -destination 'generic/platform=iOS Simulator' -derivedDataPath ios/build/DerivedData CODE_SIGNING_ALLOWED=NO build`.
-- Android debug build is blocked on this Mac by OpenJDK 25: Gradle fails with `Unsupported class file major version 69`. Re-test after selecting JDK 17 or 21.
+- Android debug build now passes by using Android Studio bundled JDK 21:
+  `JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home" ./gradlew assembleDebug`.
+- Pixel 10 Pro Fold install/launch verified with `adb install -r` and foreground activity
+  `com.forg3.sign/.MainActivity`.
+- API smoke test verified Business-tier two-signer routing, local delivery records, templates, company member invite, and final signed PDF generation.
 
 ## Product Decisions To Audit
 
 - Pay-per-signature defaults to a `$12/year` base plan plus `$0.99` per completed signature.
 - The per-signature price is controlled by `PAY_PER_SIGNATURE_FEE_CENTS`.
 - The app intentionally avoids IP and user-agent collection for privacy, so Claude should assess whether this conflicts with enforceability, fraud controls, or audit-certificate expectations.
-- Signed PDFs are electronically stamped, not cryptographically signed with certificate-authority-backed PDF signatures.
+- Signed PDFs are electronically stamped and include a multi-signer audit certificate page. Certificate-authority-backed PDF signing is provider-ready but not live until a signing certificate/provider is configured.
 - Firebase Auth is supported when configured, but local demo sessions are still available for development.
 
 ## Known Production Gaps
@@ -47,11 +62,11 @@ Perform a full product, frontend, backend, mobile readiness, and security audit 
 - Demo billing must be replaced with real StoreKit / Google Play Billing receipt verification.
 - Pay-per-signature usage fees must be mapped to store-compliant in-app billing or an approved external billing path before release.
 - Owner authentication is currently client-session/demo oriented and not enforced as a secure server session.
-- JSON file storage must be replaced with a production database and encrypted object storage.
-- Email delivery for signing links is not implemented.
+- JSON file storage must still be replaced with a production database. PDF bytes now use a local object-store abstraction, but production must configure encrypted cloud/object storage.
+- Live signer delivery requires `PUBLIC_SIGNING_BASE_URL` plus configured Microsoft Graph or Resend email credentials. Without those values, delivery attempts remain local development records.
 - Audit trail policy must be decided with legal counsel because the app intentionally avoids IP/user-agent capture.
-- The signed PDF is stamped electronically but is not a certificate-authority-backed cryptographic PDF signature.
-- Android Gradle may require JDK 17 or 21 instead of the currently installed JDK 25.
+- The signed PDF is stamped electronically but is not a live certificate-authority-backed cryptographic PDF signature until provider credentials/certificates are configured.
+- Live ID verification is not connected; the current Business-tier flow is self-attestation plus provider-ready status.
 
 ## Commands To Run
 
@@ -65,15 +80,16 @@ npm audit
 
 For browser verification, run the owner flow:
 
-1. Sign in with demo Google or Apple.
+1. Sign in with email code, demo Google, or Apple.
 2. Start demo subscription.
 3. Upload a PDF.
 4. Create a signing link.
-5. Open the signing link.
-6. Draw signature by mouse, touchpad, or touch simulation and consent.
-7. Sign document.
-8. Reload the old signing URL and confirm it is unavailable.
-9. Refresh dashboard and confirm Signed count, metered usage count for the pay-per-signature plan, and download action.
+5. For Pro/Business, add multiple signers and drag the signature-field target.
+6. Open each signing link.
+7. Draw signature by mouse, touchpad, or touch simulation; complete ID attestation if enabled; consent.
+8. Sign all required signers.
+9. Reload old signing URLs and confirm they are unavailable.
+10. Refresh dashboard and confirm Signed count, delivery outbox records, metered usage count for the pay-per-signature plan, and download action.
 
 ## Security Audit Scope
 
@@ -83,7 +99,7 @@ Priority areas:
 
 - Owner auth and authorization are the most important launch blocker.
 - Store billing receipt verification and usage-charge reconciliation are the second most important launch blocker.
-- JSON file storage and base64 PDF retention are development-only and must be replaced before production.
+- JSON file storage is development-only. Verify the object-store abstraction is migrated to encrypted production blob storage before release.
 
 - Token lifecycle and link invalidation.
 - Subscription entitlement enforcement.
@@ -99,6 +115,10 @@ Priority areas:
 - Native billing receipt verification design.
 - Metered signature usage charge idempotency and reconciliation.
 - Signed document integrity model.
+- Multi-signer race conditions and partial-completion behavior.
+- Reminder link rotation and delivery records.
+- Template and company-admin authorization.
+- Provider-status fail-closed behavior for email, ID, receipt verification, object storage, and CA-backed PDF signing.
 
 ## Backend Audit Scope
 
