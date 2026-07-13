@@ -61,3 +61,14 @@ The local store does not intentionally capture:
 - `/api/subscription/verify` is intentionally stubbed until native receipt verification is implemented.
 - Production must verify StoreKit and Google Play Billing receipts server-side before granting entitlement.
 - Production must make usage charge recording idempotent in the database and reconcile it with store billing events.
+
+## Phase 10-11 hardening layer (implemented)
+
+- **TOTP authenticator MFA**: accounts can enroll an RFC 6238 authenticator app; once active it is required at every email-code login (`server/totp.ts`, `/api/auth/totp/*`).
+- **Server-side sessions**: email tokens carry a session id; sessions are revocable individually or all at once, and revoked tokens fail authentication immediately (`/api/auth/sessions*`).
+- **Trusted-device management**: list and revoke trusted devices (`/api/auth/devices*`); revocation forces fresh device 2FA.
+- **Append-only audit chain**: every auth and document lifecycle event appends an owner-scoped record whose hash commits to the previous record (`store.appendAuditEvent`); readable at `/api/audit` without exposing document contents.
+- **Abuse protection**: strict rate limits and per-account+device resend cooldowns on all login/2FA code endpoints.
+- **Encryption at rest**: uploaded and sealed PDFs are AES-256-GCM encrypted when `FORG3_OBJECT_ENCRYPTION_KEY` is set; production refuses to start without it unless explicitly overridden.
+- **Data subject controls**: full JSON export (`/api/account/export`) and confirmed irreversible deletion (`/api/account/delete`) including stored PDF objects.
+- **CI enforcement**: the smoke suite asserts recipient-email matching, revocation, and audit chain integrity on every push.

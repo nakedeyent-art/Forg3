@@ -110,6 +110,21 @@ FORG3_TRUSTED_DEVICE_DAYS=30
 
 Set `APP_AUTH_SECRET` and `DEVICE_TRUST_SECRET` to strong server-side secrets in every deployed environment. Recipient links use `#/inbox/sign/{documentId}/{signerId}` and the backend only returns the document when the signed-in email matches the assigned signer. Legacy raw token links are also guarded by the same signed-in recipient check.
 
+### Hardened security layer (Phase 10-11)
+
+- **Authenticator-app MFA (TOTP).** Any account can enroll a standard RFC 6238 authenticator app from `#/settings`. Once active, every email-code login also requires the 6-digit app code — email compromise alone is no longer enough.
+- **Server-side sessions with revocation.** Email-code logins create a server session embedded in the token. Sessions can be revoked one at a time or all at once ("Sign out everywhere") and revoked tokens are rejected immediately.
+- **Trusted-device management.** The settings screen lists trusted devices and lets the account remove any of them, forcing fresh two-factor verification.
+- **Hash-chained audit log.** Logins, MFA events, session/device revocations, document creation, views, signatures, voids, and subscription changes append to an owner-scoped audit chain where each event commits to the previous one's hash.
+- **Abuse protection.** Dedicated rate limits on the login/2FA code endpoints plus a per-account resend cooldown (`FORG3_AUTH_CODE_LIMIT`, `FORG3_AUTH_VERIFY_LIMIT`, `FORG3_CODE_RESEND_COOLDOWN_SECONDS`).
+- **Encryption at rest.** With `FORG3_OBJECT_ENCRYPTION_KEY` set (required in production), uploaded and sealed PDFs are stored AES-256-GCM encrypted.
+- **Data controls.** `#/settings` offers a full JSON account export and a confirmed, irreversible account deletion that removes documents, files, devices, sessions, and history.
+- **Legal surfaces.** Pilot terms of service and privacy policy live at `#/terms` and `#/privacy`.
+
+## Continuous integration
+
+`.github/workflows/ci.yml` runs on every push and pull request: dependency install, app/server typechecks, full build, a 20-check backend smoke suite (`npm run smoke`) covering auth, sessions, TOTP-aware login, signing, sealing, audit chaining, and revocation, plus a high-severity dependency audit.
+
 ## Mobile builds
 
 Install dependencies and build once:
@@ -146,6 +161,16 @@ For subscription compliance, configure auto-renewable subscription products in A
 ## Production notes
 
 This is an electronic-signature workflow, not a certificate-authority-backed cryptographic PDF signature. For production legal enforceability, keep counsel involved and decide the exact audit-retention policy. The current app intentionally avoids IP and user-agent capture and keeps only the minimum document/signature metadata.
+
+### Remaining gaps before a paid public launch
+
+These still require external services, credentials, or human steps and are intentionally not faked in code:
+
+1. **Managed database + cloud object storage.** The store is guarded (`ALLOW_FILE_STORE_IN_PRODUCTION`) and objects are encrypted at rest, but production should move to Postgres plus a private cloud bucket. See [docs/PRODUCTION_PERSISTENCE.md](docs/PRODUCTION_PERSISTENCE.md).
+2. **Native billing.** App Store / Play Billing receipt verification endpoints exist (`/api/subscription/verify`) but need store credentials and StoreKit/Play Billing client work. See [docs/STORE_BILLING_IMPLEMENTATION.md](docs/STORE_BILLING_IMPLEMENTATION.md).
+3. **CA-backed PDF signatures** (PAdES) need a signing certificate/provider (`PDF_SIGNING_CERT_P12_BASE64`).
+4. **Real-device iOS/Android QA** and app-store compliance review.
+5. **Legal review** of the pilot terms/privacy text before charging outside customers.
 
 The Claude audit handoff lives at [docs/CLAUDE_AUDIT_HANDOFF.md](docs/CLAUDE_AUDIT_HANDOFF.md).
 
