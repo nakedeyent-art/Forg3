@@ -12,5 +12,10 @@ output/playwright/
 ios/App/Pods/
 ios/App/App.xcworkspace/
 ios/App/build/
+ios/build/
 android/.gradle/
 android/app/build/
+android/local.properties
+output/
+*.tmp
+* 2.*
