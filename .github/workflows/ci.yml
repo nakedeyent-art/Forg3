@@ -5,6 +5,10 @@ on:
     branches: [main]
   pull_request:
 
+permissions:
+  contents: read
+  packages: write
+
 jobs:
   build-and-test:
     runs-on: ubuntu-latest
@@ -77,3 +81,19 @@ jobs:
 
       - name: Build production image
         run: docker build -t forg3-sign:ci .
+
+  publish-ghcr:
+    runs-on: ubuntu-latest
+    needs: [build-and-test, smoke-postgres, docker-image]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Login to GitHub Container Registry
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      - name: Build and publish production image
+        run: |
+          docker build -t ghcr.io/nakedeyent-art/forg3:main -t ghcr.io/nakedeyent-art/forg3:${{ github.sha }} .
+          docker push ghcr.io/nakedeyent-art/forg3:main
+          docker push ghcr.io/nakedeyent-art/forg3:${{ github.sha }}
