@@ -260,3 +260,43 @@ export interface FeatureStatus {
     configured: boolean;
   };
 }
+
+export interface OwnerSessionSummary {
+  id: string;
+  createdAt: string;
+  lastSeenAt: string;
+  expiresAt: string;
+  revokedAt?: string;
+  deviceName?: string;
+  authMethod: 'email_code' | 'dev' | 'firebase';
+  active: boolean;
+  current: boolean;
+}
+
+export interface TrustedDeviceSummary {
+  id: string;
+  deviceName: string;
+  trustedAt: string;
+  lastSeenAt: string;
+  expiresAt: string;
+}
+
+export interface TotpStatus {
+  enabled: boolean;
+  pending: boolean;
+  activatedAt?: string;
+}
+
+export interface AuditEventSummary {
+  id: string;
+  sequence: number;
+  ownerEmail: string;
+  actorEmail: string;
+  type: string;
+  message: string;
+  documentId?: string;
+  signerId?: string;
+  createdAt: string;
+  previousHash: string;
+  hash: string;
+}

@@ -30,6 +30,16 @@ export interface EmailSignInStart {
   devCode?: string;
 }
 
+export class AuthApiError extends Error {
+  totpRequired: boolean;
+
+  constructor(message: string, totpRequired = false) {
+    super(message);
+    this.name = 'AuthApiError';
+    this.totpRequired = totpRequired;
+  }
+}
+
 export function getStoredSession(): AuthSession | null {
   const raw = localStorage.getItem(sessionKey);
 
@@ -168,6 +178,7 @@ export async function verifyEmailSignIn(input: {
   name?: string;
   challengeId: string;
   code: string;
+  totpCode?: string;
 }): Promise<AuthSession> {
   const payload = await publicAuthRequest<{
     owner?: { uid: string; email: string; name: string };
@@ -306,10 +317,13 @@ async function publicAuthRequest<T>(path: string, init: RequestInit = {}): Promi
       ...(init.headers || {})
     }
   });
-  const payload = (await response.json().catch(() => ({}))) as T & { error?: string };
+  const payload = (await response.json().catch(() => ({}))) as T & { error?: string; totpRequired?: boolean };
 
   if (!response.ok) {
-    throw new Error(payload.error || `Request failed with status ${response.status}`);
+    throw new AuthApiError(
+      payload.error || `Request failed with status ${response.status}`,
+      Boolean(payload.totpRequired)
+    );
   }
 
   return payload;

@@ -52,16 +52,14 @@ import {
   voidDocument
 } from './lib/api';
 import {
-  checkDeviceSecurity,
   clearStoredSession,
   firebaseConfigured,
   getStoredSession,
-  signIn,
-  startEmailSignIn,
-  verifyEmailSignIn,
-  startDeviceVerification,
-  verifyDeviceCode
+  signIn
 } from './lib/auth';
+import { AuthControls, DeviceVerificationPanel, DeviceVerificationScreen } from './components/AuthPanels';
+import { SettingsScreen } from './screens/SettingsScreen';
+import { LegalScreen } from './screens/LegalScreen';
 import { downloadDataUrl, fileToDataUrl } from './lib/pdf';
 import type {
   AuthSession,
@@ -81,7 +79,7 @@ import type {
 import { SignaturePad } from './components/SignaturePad';
 
 interface RouteState {
-  kind: 'dashboard' | 'sign' | 'inbox' | 'assigned-sign';
+  kind: 'dashboard' | 'sign' | 'inbox' | 'assigned-sign' | 'settings' | 'terms' | 'privacy';
   token?: string;
   documentId?: string;
   signerId?: string;
@@ -260,6 +258,14 @@ export default function App() {
 
   if (route.kind === 'inbox') {
     return <RecipientInboxScreen />;
+  }
+
+  if (route.kind === 'settings') {
+    return <SettingsScreen />;
+  }
+
+  if (route.kind === 'terms' || route.kind === 'privacy') {
+    return <LegalScreen page={route.kind} />;
   }
 
   return <Dashboard />;
@@ -666,6 +672,10 @@ function Dashboard() {
             <Inbox size={15} />
             Recipient inbox
           </a>
+          <a className="secondary-button top-link" href="#/settings">
+            <ShieldCheck size={15} />
+            Account
+          </a>
           <span className="runtime-pill">
             <Smartphone size={15} />
             {getBillingRuntimeLabel()}
@@ -683,6 +693,27 @@ function Dashboard() {
           )}
         </div>
       </header>
+
+      {!session && (
+        <section className="onboarding-banner">
+          <div>
+            <span className="eyebrow">Welcome</span>
+            <h2>Send a PDF for signature in three steps</h2>
+          </div>
+          <ol>
+            <li>
+              <strong>Sign in with your email.</strong> We send a one-time code — no password to remember.
+            </li>
+            <li>
+              <strong>Upload a PDF and add recipients.</strong> Each recipient gets a private link addressed to their
+              email only.
+            </li>
+            <li>
+              <strong>Recipients verify and sign.</strong> You both get a sealed PDF with an audit certificate page.
+            </li>
+          </ol>
+        </section>
+      )}
 
       <main className="workspace">
         <section className="compose-panel">
@@ -1099,6 +1130,10 @@ function RecipientInboxScreen() {
             <Upload size={15} />
             Sender desk
           </a>
+          <a className="secondary-button top-link" href="#/settings">
+            <ShieldCheck size={15} />
+            Account
+          </a>
           {session && (
             <div className="session-pill">
               <KeyRound size={15} />
@@ -1185,303 +1220,6 @@ function RecipientInboxScreen() {
         </main>
       )}
     </div>
-  );
-}
-
-function DeviceVerificationScreen({
-  session,
-  onVerified,
-  onSignOut,
-  context
-}: {
-  session: AuthSession;
-  onVerified: () => void;
-  onSignOut: () => void;
-  context: 'account' | 'recipient';
-}) {
-  return (
-    <div className="signer-shell">
-      <header className="signer-header">
-        <a className="brand" href="#/">
-          <span className="brand-mark">
-            <PenLine size={20} />
-          </span>
-          <span>
-            <strong>Forg3 Sign</strong>
-            <small>{context === 'recipient' ? 'Recipient verification' : 'Account verification'}</small>
-          </span>
-        </a>
-        <div className="session-pill">
-          <KeyRound size={15} />
-          <span>{session.email}</span>
-          <button type="button" className="icon-button" onClick={onSignOut} title="Sign out">
-            <LogOut size={16} />
-          </button>
-        </div>
-      </header>
-      <DeviceVerificationPanel session={session} onVerified={onVerified} onSignOut={onSignOut} context={context} />
-    </div>
-  );
-}
-
-function AuthControls({ onSignedIn }: { onSignedIn: (session: AuthSession) => void }) {
-  const [email, setEmail] = useState('');
-  const [name, setName] = useState('');
-  const [challengeId, setChallengeId] = useState('');
-  const [code, setCode] = useState('');
-  const [busy, setBusy] = useState('');
-  const [message, setMessage] = useState('');
-  const [devCode, setDevCode] = useState('');
-  const showProviderButtons = firebaseConfigured() || import.meta.env.DEV;
-
-  const handleProviderSignIn = async (provider: 'google' | 'apple') => {
-    setBusy(`auth-${provider}`);
-    setMessage('');
-
-    try {
-      onSignedIn(await signIn(provider));
-    } catch (error) {
-      setMessage(getErrorMessage(error));
-    } finally {
-      setBusy('');
-    }
-  };
-
-  const handleSendEmailCode = async (event: FormEvent) => {
-    event.preventDefault();
-
-    if (!email.trim()) {
-      setMessage('Enter your email address.');
-      return;
-    }
-
-    setBusy('email-start');
-    setMessage('');
-    setDevCode('');
-
-    try {
-      const response = await startEmailSignIn(email.trim(), name.trim() || undefined);
-      setChallengeId(response.challengeId);
-      setMessage(`Login code sent to ${email.trim()}.`);
-      setDevCode(response.devCode || '');
-    } catch (error) {
-      setMessage(getErrorMessage(error));
-    } finally {
-      setBusy('');
-    }
-  };
-
-  const handleVerifyEmailCode = async (event: FormEvent) => {
-    event.preventDefault();
-
-    if (!challengeId || code.length !== 6) {
-      return;
-    }
-
-    setBusy('email-verify');
-    setMessage('');
-
-    try {
-      const session = await verifyEmailSignIn({
-        email: email.trim(),
-        name: name.trim() || undefined,
-        challengeId,
-        code
-      });
-      onSignedIn(session);
-    } catch (error) {
-      setMessage(getErrorMessage(error));
-    } finally {
-      setBusy('');
-    }
-  };
-
-  return (
-    <div className="auth-stack">
-      {showProviderButtons && (
-        <div className="auth-buttons">
-          <button type="button" onClick={() => void handleProviderSignIn('google')} disabled={busy === 'auth-google'}>
-            {busy === 'auth-google' ? <Loader2 className="spin" size={16} /> : <KeyRound size={16} />}
-            Google
-          </button>
-          <button type="button" onClick={() => void handleProviderSignIn('apple')} disabled={busy === 'auth-apple'}>
-            {busy === 'auth-apple' ? <Loader2 className="spin" size={16} /> : <KeyRound size={16} />}
-            Apple
-          </button>
-        </div>
-      )}
-
-      <form className="email-auth-form" onSubmit={challengeId ? handleVerifyEmailCode : handleSendEmailCode}>
-        <input
-          type="email"
-          value={email}
-          onChange={(event) => setEmail(event.target.value)}
-          placeholder="you@example.com"
-          disabled={Boolean(challengeId)}
-        />
-        {!challengeId && (
-          <input
-            value={name}
-            onChange={(event) => setName(event.target.value)}
-            placeholder="Name"
-          />
-        )}
-        {challengeId && (
-          <input
-            inputMode="numeric"
-            autoComplete="one-time-code"
-            value={code}
-            onChange={(event) => setCode(event.target.value.replace(/\D/g, '').slice(0, 6))}
-            placeholder="000000"
-          />
-        )}
-        <button type="submit" disabled={busy === 'email-start' || busy === 'email-verify'}>
-          {busy === 'email-start' || busy === 'email-verify' ? <Loader2 className="spin" size={16} /> : <Send size={16} />}
-          {challengeId ? 'Verify' : 'Email code'}
-        </button>
-      </form>
-      {message && <div className="inline-note">{message}</div>}
-      {devCode && <div className="inline-note">Local code: {devCode}</div>}
-    </div>
-  );
-}
-
-function DeviceVerificationPanel({
-  session,
-  onVerified,
-  onSignOut,
-  context
-}: {
-  session: AuthSession;
-  onVerified: () => void;
-  onSignOut: () => void;
-  context: 'account' | 'recipient' | 'document';
-}) {
-  const [challengeId, setChallengeId] = useState('');
-  const [code, setCode] = useState('');
-  const [busy, setBusy] = useState('check');
-  const [message, setMessage] = useState('');
-  const [devCode, setDevCode] = useState('');
-
-  useEffect(() => {
-    let mounted = true;
-    setBusy('check');
-    setMessage('');
-
-    checkDeviceSecurity()
-      .then((status) => {
-        if (!mounted) {
-          return;
-        }
-
-        if (!status.required || status.trusted) {
-          onVerified();
-          return;
-        }
-
-        setMessage('Send a verification code to continue.');
-      })
-      .catch((error) => {
-        if (mounted) {
-          setMessage(getErrorMessage(error));
-        }
-      })
-      .finally(() => {
-        if (mounted) {
-          setBusy('');
-        }
-      });
-
-    return () => {
-      mounted = false;
-    };
-  }, [session.email]);
-
-  const handleSendCode = async () => {
-    setBusy('send-code');
-    setMessage('');
-    setDevCode('');
-
-    try {
-      const response = await startDeviceVerification();
-      if (response.trusted) {
-        onVerified();
-        return;
-      }
-      setChallengeId(response.challengeId || '');
-      setMessage(`Verification code sent to ${session.email}.`);
-      setDevCode(response.devCode || '');
-    } catch (error) {
-      setMessage(getErrorMessage(error));
-    } finally {
-      setBusy('');
-    }
-  };
-
-  const handleVerifyCode = async (event: FormEvent) => {
-    event.preventDefault();
-
-    if (!challengeId || code.replace(/\D/g, '').length !== 6) {
-      return;
-    }
-
-    setBusy('verify-code');
-    setMessage('');
-
-    try {
-      await verifyDeviceCode(challengeId, code);
-      onVerified();
-    } catch (error) {
-      setMessage(getErrorMessage(error));
-    } finally {
-      setBusy('');
-    }
-  };
-
-  const heading =
-    context === 'document'
-      ? 'Verify device to open document'
-      : context === 'recipient'
-        ? 'Verify device for recipient access'
-        : 'Verify this device';
-
-  return (
-    <section className="complete-panel security-panel">
-      <ShieldCheck size={42} />
-      <h1>{heading}</h1>
-      <p>{session.email}</p>
-
-      <div className="security-actions">
-        <button type="button" onClick={() => void handleSendCode()} disabled={busy === 'check' || busy === 'send-code'}>
-          {busy === 'send-code' ? <Loader2 className="spin" size={16} /> : <Send size={16} />}
-          {challengeId ? 'Send new code' : 'Send code'}
-        </button>
-        <button type="button" className="secondary-button" onClick={onSignOut}>
-          <LogOut size={16} />
-          Sign out
-        </button>
-      </div>
-
-      <form className="security-code-form" onSubmit={handleVerifyCode}>
-        <label>
-          <span>Verification code</span>
-          <input
-            inputMode="numeric"
-            autoComplete="one-time-code"
-            value={code}
-            onChange={(event) => setCode(event.target.value.replace(/\D/g, '').slice(0, 6))}
-            placeholder="000000"
-          />
-        </label>
-        <button className="primary-button" type="submit" disabled={!challengeId || code.length !== 6 || busy === 'verify-code'}>
-          {busy === 'verify-code' ? <Loader2 className="spin" size={17} /> : <ShieldCheck size={17} />}
-          Verify
-        </button>
-      </form>
-
-      {message && <div className="inline-note">{message}</div>}
-      {devCode && <div className="inline-note">Local code: {devCode}</div>}
-    </section>
   );
 }
 
@@ -2129,6 +1867,29 @@ function SignerScreen({ access }: { access: SigningAccess }) {
               <small>Expires {formatDate(document.expiresAt)}</small>
             </div>
 
+            <div className="request-context">
+              <div className="request-context-heading">
+                <ShieldCheck size={16} />
+                <span>About this request</span>
+              </div>
+              <ul>
+                <li>
+                  Sent by <strong>{document.ownerName}</strong> for &quot;{document.title}&quot;.
+                </li>
+                <li>
+                  Addressed to <strong>{document.signerEmail}</strong> — only that verified email can open or sign it.
+                </li>
+                <li>
+                  Document fingerprint <code>{document.documentHash.slice(0, 16)}…</code> proves the file has not
+                  changed since it was sent.
+                </li>
+                <li>
+                  After everyone signs, the PDF is sealed with an audit certificate page and you can download your copy
+                  immediately.
+                </li>
+              </ul>
+            </div>
+
             <div className="signature-input-heading">
               <span>Draw signature</span>
               <small>Finger, stylus, mouse, or touchpad</small>
@@ -2315,6 +2076,18 @@ function parseRoute(): RouteState {
 
   if (hash === 'inbox') {
     return { kind: 'inbox' };
+  }
+
+  if (hash === 'settings') {
+    return { kind: 'settings' };
+  }
+
+  if (hash === 'terms') {
+    return { kind: 'terms' };
+  }
+
+  if (hash === 'privacy') {
+    return { kind: 'privacy' };
   }
 
   return { kind: 'dashboard' };

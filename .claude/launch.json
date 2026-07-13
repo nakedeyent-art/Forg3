@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "forg3-api",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["dist-server/server/index.js"],
+      "port": 4127
+    }
+  ]
+}

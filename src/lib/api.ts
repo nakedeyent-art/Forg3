@@ -1,16 +1,20 @@
 import type {
+  AuditEventSummary,
   CreateDocumentInput,
   CompanyProfile,
   DocumentTemplate,
   DocumentSummary,
   EmailDelivery,
   FeatureStatus,
+  OwnerSessionSummary,
   PlanId,
   PublicSigningDocument,
   SignerInboxDocument,
   SignedDocumentResponse,
   SigningLinkResponse,
   SubscriptionResponse,
+  TotpStatus,
+  TrustedDeviceSummary,
   BillingProvider
 } from './types';
 import { getAuthToken, getDeviceId, getDeviceName } from './auth';
@@ -157,6 +161,72 @@ export async function addCompanyMember(input: {
   return request<{ company: CompanyProfile }>('/api/company/members', {
     method: 'POST',
     body: JSON.stringify(input)
+  });
+}
+
+export async function listSessions() {
+  return request<{ sessions: OwnerSessionSummary[] }>('/api/auth/sessions');
+}
+
+export async function revokeSession(sessionId: string) {
+  return request<{ revoked: boolean }>('/api/auth/sessions/revoke', {
+    method: 'POST',
+    body: JSON.stringify({ sessionId })
+  });
+}
+
+export async function revokeAllSessions() {
+  return request<{ revoked: number }>('/api/auth/sessions/revoke-all', {
+    method: 'POST'
+  });
+}
+
+export async function listTrustedDevices() {
+  return request<{ devices: TrustedDeviceSummary[] }>('/api/auth/devices');
+}
+
+export async function revokeTrustedDevice(deviceId: string) {
+  return request<{ revoked: boolean }>(`/api/auth/devices/${deviceId}`, {
+    method: 'DELETE'
+  });
+}
+
+export async function getTotpStatus() {
+  return request<TotpStatus>('/api/auth/totp');
+}
+
+export async function enrollTotp() {
+  return request<{ secret: string; otpauthUrl: string }>('/api/auth/totp/enroll', {
+    method: 'POST'
+  });
+}
+
+export async function activateTotp(code: string) {
+  return request<{ enabled: boolean }>('/api/auth/totp/activate', {
+    method: 'POST',
+    body: JSON.stringify({ code })
+  });
+}
+
+export async function disableTotp(code: string) {
+  return request<{ enabled: boolean }>('/api/auth/totp/disable', {
+    method: 'POST',
+    body: JSON.stringify({ code })
+  });
+}
+
+export async function listAuditEvents() {
+  return request<{ events: AuditEventSummary[] }>('/api/audit');
+}
+
+export async function exportAccountData() {
+  return request<Record<string, unknown>>('/api/account/export');
+}
+
+export async function deleteAccount(confirmEmail: string) {
+  return request<{ deleted: boolean; documentsRemoved: number }>('/api/account/delete', {
+    method: 'POST',
+    body: JSON.stringify({ confirmEmail })
   });
 }
 
