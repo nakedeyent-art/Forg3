@@ -80,6 +80,7 @@ Monitoring:
 ```bash
 FORG3_MONITOR_URL=https://forg3.nak3deye.com \
 FORG3_EXPECTED_A_RECORD=193.122.161.167 \
+FORG3_EXPECTED_SERVICE=forg3 \
 npm run monitor:production
 ```
 

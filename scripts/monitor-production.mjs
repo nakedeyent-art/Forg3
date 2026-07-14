@@ -3,6 +3,7 @@ import process from 'node:process';
 
 const baseUrl = (process.env.FORG3_MONITOR_URL || 'https://forg3.nak3deye.com').replace(/\/$/, '');
 const expectedAddress = process.env.FORG3_EXPECTED_A_RECORD || '';
+const expectedService = process.env.FORG3_EXPECTED_SERVICE || 'forg3';
 const timeoutMs = Number(process.env.FORG3_MONITOR_TIMEOUT_MS || 10000);
 
 const result = {
@@ -18,6 +19,7 @@ const result = {
   health: {
     ok: false,
     status: 0,
+    expectedService,
     service: '',
     time: ''
   }
@@ -36,7 +38,7 @@ try {
   result.health.status = response.status;
   result.health.service = typeof body.service === 'string' ? body.service : '';
   result.health.time = typeof body.time === 'string' ? body.time : '';
-  result.health.ok = response.ok && body.ok === true && result.health.service === 'forg3-sign';
+  result.health.ok = response.ok && body.ok === true && result.health.service === expectedService;
   result.ok = result.dns.ok && result.health.ok;
 } catch (error) {
   result.error = error instanceof Error ? error.message : String(error);

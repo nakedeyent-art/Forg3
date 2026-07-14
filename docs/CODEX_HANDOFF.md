@@ -18,7 +18,7 @@ _Last updated: 2026-07-14 UTC (Codex session: native billing bridge, iOS build u
 
 - Both containers share the pod network. `caddy` runs `caddy reverse-proxy --from https://forg3.nak3deye.com --to localhost:4127` with automatic Let's Encrypt. The app env sets `PUBLIC_SIGNING_BASE_URL=https://forg3.nak3deye.com`.
 - The v4 app container booted successfully: `storage: postgres, encrypted at rest: yes`.
-- Public health is live: `https://forg3.nak3deye.com/api/health` returns `{"ok":true,"service":"forg3-sign",...}`.
+- Public health is live: `https://forg3.nak3deye.com/api/health` returns `{"ok":true,"service":"forg3",...}`.
 - If the instance is recreated, the IP changes. Update DNS to the new public IP and wait for Caddy to issue a fresh certificate.
 - OCI tenancy limits are 0 for managed PostgreSQL **and** reserved public IPs, so `forg3.nak3deye.com` currently points at the instance's ordinary public IP. A limit-increase ticket would unlock reserved-IP stability.
 - NSG allows 80 (ACME) / 443 / 4127 ingress.
