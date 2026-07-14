@@ -44,6 +44,16 @@ Recommended:
 | `FORG3_CREATOR_EMAILS` | none | Comma-separated accounts with creator unlimited access |
 | `FORG3_AUTH_CODE_LIMIT` / `FORG3_AUTH_VERIFY_LIMIT` / `FORG3_CODE_RESEND_COOLDOWN_SECONDS` | 10 / 40 / 30 | Login-code abuse protection |
 
+Native billing:
+
+| Variable | Purpose |
+| --- | --- |
+| `APPLE_APP_STORE_ISSUER_ID` / `APPLE_APP_STORE_KEY_ID` / `APPLE_APP_STORE_PRIVATE_KEY` | App Store Server API auth for receipt verification |
+| `APPLE_APP_STORE_BUNDLE_ID` / `APPLE_APP_STORE_ENVIRONMENT` | iOS bundle and sandbox/production selector |
+| `GOOGLE_PLAY_PACKAGE_NAME` | Android package name |
+| `GOOGLE_PLAY_SERVICE_ACCOUNT_JSON` or `GOOGLE_PLAY_SERVICE_ACCOUNT_JSON_BASE64` or `GOOGLE_APPLICATION_CREDENTIALS` | Google Play Developer API service account |
+| `GOOGLE_RTDN_VERIFICATION_TOKEN` or `BILLING_WEBHOOK_TOKEN` | Optional shared token for Google Pub/Sub push endpoint |
+
 ## 3. Storage model
 
 With `DATABASE_URL` set, Forg3 stores workflow state in a `forg3_store` jsonb
@@ -57,9 +67,26 @@ schema described in [PRODUCTION_PERSISTENCE.md](PRODUCTION_PERSISTENCE.md).
 Backups: standard `pg_dump` covers everything (documents, PDFs, audit chain).
 
 ```bash
-pg_dump "$DATABASE_URL" --format=custom --file=forg3-backup.dump
-pg_restore --dbname "$DATABASE_URL" forg3-backup.dump
+pg_dump "$DATABASE_URL" --schema=forg3 --format=custom --no-owner --no-privileges --file=forg3-backup.dump
+pg_restore --no-owner --no-privileges --dbname "$RESTORE_DATABASE_URL" forg3-backup.dump
 ```
+
+The app database role is intentionally scoped to the `forg3` schema. On managed
+Supabase/Postgres, dumping the whole database may fail on provider-owned schemas;
+dump `--schema=forg3`.
+
+Monitoring:
+
+```bash
+FORG3_MONITOR_URL=https://forg3.nak3deye.com \
+FORG3_EXPECTED_A_RECORD=193.122.161.167 \
+npm run monitor:production
+```
+
+The monitor verifies DNS A records and the public `/api/health` response. Run it
+from cron, GitHub Actions, or an external uptime monitor. If OCI recreates the
+container instance, update DNS and `FORG3_EXPECTED_A_RECORD`; a reserved public
+IP is still the better long-term fix once the OCI tenancy quota allows one.
 
 ## 4. Deploy options
 
@@ -101,11 +128,15 @@ pending Postgres writes before exiting.
 - [ ] `#/settings` loads; enroll TOTP on the owner account.
 - [ ] `#/terms` and `#/privacy` render.
 - [ ] Backups scheduled (`pg_dump` cron or managed snapshots).
+- [ ] Restore drill completed against a disposable Postgres database.
+- [ ] DNS/health monitor scheduled.
 - [ ] For mobile shells: set `VITE_API_BASE_URL` to the public origin, rebuild, `npx cap sync`.
 
 ## 6. Still outside this runbook
 
-- **Native billing** (StoreKit / Play Billing receipt verification) — see
+- **Native purchase bridge** (StoreKit / Play Billing inside the Capacitor
+  shells) — the server verification endpoints are present; the native bridge,
+  store products, and credentials are still required. See
   [STORE_BILLING_IMPLEMENTATION.md](STORE_BILLING_IMPLEMENTATION.md).
 - **CA-backed PAdES signatures** — needs a signing certificate
   (`PDF_SIGNING_CERT_P12_BASE64`, `PDF_SIGNING_CERT_PASSWORD`).

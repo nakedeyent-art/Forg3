@@ -1,29 +1,49 @@
 # Codex Handoff — Forg3 Sign
 
-_Last updated: 2026-07-13 (Claude session: staging v2 with HTTPS + managed Postgres)_
+_Last updated: 2026-07-14 UTC (Codex session: billing verification plumbing, PDF preview fix, signed Android AAB, backup/restore drill, v3 cleanup)_
 
 ## Current live state
 
 | Thing | Value |
 | --- | --- |
-| Staging URL | **https://150-136-152-51.sslip.io** (Let's Encrypt cert, valid to 2026-10-11) |
-| Compute | OCI container instance `forg3-staging-v2` (us-ashburn, `CI.Standard.A1.Flex` 1 OCPU / 2 GB), containers: `forg3-app` + `caddy` |
+| Staging URL | **https://forg3.nak3deye.com** live. Cloudflare DNS has an A record `forg3.nak3deye.com -> 193.122.161.167` with proxy disabled so Caddy can manage Let's Encrypt directly. |
+| Compute | OCI container instance `forg3-staging-v4` (us-ashburn, `CI.Standard.A1.Flex` 1 OCPU / 2 GB), containers: `forg3-app` + `caddy`, public IP `193.122.161.167` |
 | Database | **Supabase managed Postgres**, project `forg3-staging` (ref `qmipdkaoptxsevlfkrfm`, us-east-1, free tier, daily backups). App connects as role `forg3_app` via session pooler `aws-0-us-east-1.pooler.supabase.com:5432`, schema `forg3` (NOT exposed via Supabase REST API) |
 | Image | `ghcr.io/nakedeyent-art/forg3:main` (multi-arch, published by CI on every push to main) |
-| Repo | github.com/nakedeyent-art/Forg3, default branch `main`, CI green (build-and-test, smoke-postgres, docker-image, publish-ghcr) |
-| Old staging | v1 instance (`129.80.37.229`, HTTP, containerized Postgres) is **STOPPED**, not deleted — delete once v2 is trusted |
+| Repo | github.com/nakedeyent-art/Forg3, default branch `main`, CI green on merge commit `b30e035256f70018e7cdc114f6f64edfc7197f5f`; `publish-ghcr` completed in CI run `29300693453` |
+| Old staging | Prior v1/v2/v3 container instances are deleted. Current live DNS target is v4 only. |
 | Local secrets/state | `~/Documents/Forg3/.deploy/` (git-ignored): OCIDs, device id, Supabase `forg3_app` password, encryption key, test artifacts |
 
-## How staging v2 works
+## How staging v4 works
 
-- Both containers share the pod network. `caddy` discovers the instance's public IP at startup (api.ipify.org), derives `<ip-dashes>.sslip.io`, and runs `caddy reverse-proxy --from https://<domain> --to localhost:4127` with automatic Let's Encrypt. The app wrapper does the same to set `PUBLIC_SIGNING_BASE_URL`. No DNS setup needed; swap to a real domain by pointing DNS at the IP and changing the two container commands.
-- If the instance is recreated, the IP changes and the sslip domain follows automatically — links in old emails break, but data is safe in Supabase.
-- OCI tenancy limits are 0 for managed PostgreSQL **and** reserved public IPs — that's why sslip + startup discovery is used. A limit-increase ticket would unlock both.
+- Both containers share the pod network. `caddy` runs `caddy reverse-proxy --from https://forg3.nak3deye.com --to localhost:4127` with automatic Let's Encrypt. The app env sets `PUBLIC_SIGNING_BASE_URL=https://forg3.nak3deye.com`.
+- The v4 app container booted successfully: `storage: postgres, encrypted at rest: yes`.
+- Public health is live: `https://forg3.nak3deye.com/api/health` returns `{"ok":true,"service":"forg3-sign",...}`.
+- If the instance is recreated, the IP changes. Update DNS to the new public IP and wait for Caddy to issue a fresh certificate.
+- OCI tenancy limits are 0 for managed PostgreSQL **and** reserved public IPs, so `forg3.nak3deye.com` currently points at the instance's ordinary public IP. A limit-increase ticket would unlock reserved-IP stability.
 - NSG allows 80 (ACME) / 443 / 4127 ingress.
 
-## Verified end-to-end on v2 (2026-07-13)
+## Verified end-to-end on v4 (2026-07-14 UTC)
 
-Email-code login (real Microsoft Graph delivery) → device 2FA → document create (creator account `st@nak3deye.com`) → signing-link email with HTTPS URL → signer opened room → signed → sealed PDF (`FORG3ENC1` AES-256-GCM blobs confirmed in Supabase `forg3.forg3_objects`) → audit chain `auth.login → auth.mfa_verified → document.created → document.viewed → document.signer_signed → document.signed` intact. Sealed test PDF: `.deploy/forg3-staging-v2-signed.pdf`.
+Email-code login (real Microsoft Graph delivery) → device 2FA → document create (creator account `st@nak3deye.com`) → signing-link email from `st@nak3deye.com` with `https://forg3.nak3deye.com/#/inbox/sign/...` URL → unauthenticated assigned-room open returned `401` → verified recipient opened room → signed → owner downloaded sealed PDF → audit chain `auth.login → auth.mfa_verified → document.created → document.viewed → document.signer_signed → document.signed` links intact. Sealed test PDF: `.deploy/forg3-v4-signed.pdf`.
+
+Feature status on v4: email delivery configured via Microsoft Graph; object storage configured as Postgres-backed encrypted blobs with `encryptedAtRest=true`.
+
+The signing-room PDF surface now uses a PDF.js canvas renderer (`src/components/PdfPreview.tsx`) instead of the old iframe embed. This removes the mobile-fragile browser PDF viewer dependency and gives users paging, zoom, and download fallback controls.
+
+Operational checks completed from this repo:
+
+- `npm run typecheck`, `VITE_API_BASE_URL=https://forg3.nak3deye.com npm run cap:sync`, `npm run smoke`, and `npm audit --audit-level=moderate --omit=dev` passed; audit reports 0 vulnerabilities after the `uuid` override in `package.json`.
+- Production monitor: DNS `forg3.nak3deye.com -> 193.122.161.167` and public `/api/health` both passed.
+- Backup: `.deploy/backups/forg3-staging-forg3-schema-20260714T095908Z.dump` created with `pg_dump --schema=forg3`.
+- Restore drill: dump restored into a disposable local Postgres cluster with `--no-owner --no-privileges`; restored counts were `forg3_store_rows=1` and `forg3_objects_rows=4`.
+
+Mobile shells were rebuilt with `VITE_API_BASE_URL=https://forg3.nak3deye.com` and verified to contain no stale `sign.nak3deye.com`, `150-136-152-51`, or `sslip.io` references. Artifacts:
+
+- Android debug APK: `.deploy/mobile/forg3-forg3-domain-debug.apk` (SHA-256 `b83a82b6d5c356461cfec06c4d09df42998ee1e99f472e05c853dc43d7877dca`)
+- Android signed release AAB for Play internal testing: `.deploy/mobile/forg3-play-internal-release.aab` (SHA-256 `3a919cc03275c1d27b04e65480f1776fe80270453e981fc0837445eed5e129ed`)
+- iOS simulator app zip: `.deploy/mobile/forg3-forg3-domain-ios-simulator-app.zip` (SHA-256 `f3b8275e24d506ea962fe096a3161a686c2407b1aedf96a7115862cba23a43e1`)
+- iOS unsigned device app zip: `.deploy/mobile/forg3-forg3-domain-ios-unsigned-device-app.zip` (SHA-256 `357251236bf3fb9083808c7d1fa396b193cbe83533796c3f771dc4495021b1df`)
 
 ## Architecture crib sheet
 
@@ -36,15 +56,18 @@ Email-code login (real Microsoft Graph delivery) → device 2FA → document cre
 
 ## Remaining work (priority order agreed with owner)
 
-1. ~~Managed DB + HTTPS staging~~ ✅ done (this handoff).
-2. **Real-device iOS/Android QA (priority 9)** — next. Set `VITE_API_BASE_URL=https://150-136-152-51.sslip.io` (or the real domain once DNS exists), `npm run build && npx cap sync`, build in Xcode/Android Studio on physical devices, TestFlight internal + Play internal track. In-app account deletion (Apple requirement) already exists at `#/settings`.
-3. **Native billing (priority 7) — last.** Owner HAS App Store Connect + Play Console credentials. Wire App Store Server API + Play Developer API receipt verification into `/api/subscription/verify` (see `docs/STORE_BILLING_IMPLEMENTATION.md`), StoreKit 2 / Play Billing in the Capacitor shells. Product IDs already defined in `server/index.ts` (`com.forg3.sign.*` / `forg3_*`).
-4. Real domain + DNS for staging/production (replaces sslip.io), then legal review of `#/terms` / `#/privacy` before charging.
-5. Optional hardening: passkeys, CA-backed PAdES signing cert, relational schema for multi-instance scaling (`docs/PRODUCTION_PERSISTENCE.md`), OCI limit-increase ticket.
+1. Managed DB + HTTPS staging: done and reverified on v4.
+2. Real-device iOS/Android QA (priority 9): Android debug, Android signed AAB, iOS simulator, and iOS device-SDK builds compile against `https://forg3.nak3deye.com`. Runtime QA is still pending because no Android device/emulator was available, and iOS install/TestFlight is blocked by missing Apple account provisioning in Xcode. Required test path: email login, device 2FA, upload PDF, send email link, recipient-only access, signing, and sealed PDF download. In-app account deletion (Apple requirement) already exists at `#/settings`.
+3. Native billing (priority 7): server receipt-verification and webhook plumbing exists for Apple App Store Server API and Google Play Developer API, and production UI fails closed unless a native purchase bridge returns a real store payload. Remaining work is native StoreKit 2 / Play Billing bridge, store credentials/products, Apple notification certificate-chain validation, Google RTDN configuration, and the final per-signature billing model decision. Product IDs are defined in `server/index.ts` (`com.forg3.sign.*` / `forg3_*`). See `docs/STORE_BILLING_IMPLEMENTATION.md`.
+4. iOS TestFlight upload: blocked until Xcode has the Apple developer account/team and provisioning profile for `com.forg3.sign`.
+5. Legal review of `#/terms` / `#/privacy` before charging.
+6. Optional hardening: passkeys, CA-backed PAdES signing cert, relational schema for multi-instance scaling (`docs/PRODUCTION_PERSISTENCE.md`), OCI limit-increase ticket.
 
 ## Gotchas
 
 - **Never** run staging without `FORG3_OBJECT_ENCRYPTION_KEY` — rotating it orphans existing sealed PDFs (key lives in `.deploy` and in the container env).
-- Login codes rate-limit hard (10/15min per IP, 30s resend cooldown) — during automated testing, reuse the trusted device id in `.deploy/oci-staging-v2-device-id`.
+- Login codes rate-limit hard (10/15min per IP, 30s resend cooldown) — during automated testing, reuse the trusted device id in `.deploy/forg3-v4-qa-device-id`.
 - Demo billing is disabled in production; the staging owner works because `FORG3_CREATOR_EMAILS=st@nak3deye.com` grants creator access.
 - Supabase MCP `execute_sql` runs as `postgres`, which cannot touch `forg3_app`-owned tables — connect as `forg3_app` (password in `.deploy/supabase-forg3app-password`) for data operations.
+- Supabase/app-role dumps must use `pg_dump --schema=forg3`; whole-database dumps can fail on provider-owned schemas.
+- PDF.js improved mobile signing reliability, but it also adds a large client asset (`pdf.worker` is about 2.2 MB and the main app chunk is above Vite's 500 KB warning threshold). Code-splitting the signing room is the next performance pass before broad launch.

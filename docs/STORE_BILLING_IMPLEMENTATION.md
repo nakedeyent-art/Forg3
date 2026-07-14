@@ -1,6 +1,6 @@
 # Store Billing Implementation Runbook
 
-Phase 4 is blocked until App Store Connect, Google Play Console, sandbox products, server credentials, and the per-signature billing model are approved. The current API fails closed: `/api/subscription/verify` returns `501` and does not grant entitlement.
+Phase 4 is partially implemented. The server now has fail-closed Apple App Store Server API and Google Play Developer API verification paths, plus idempotent Apple/Google webhook event logging. It still cannot grant live store entitlement until store products and credentials are configured and the native iOS/Android purchase bridge returns real purchase payloads.
 
 ## Official References Checked
 
@@ -28,20 +28,20 @@ Phase 4 is blocked until App Store Connect, Google Play Console, sandbox product
 
 ## Required Server Secrets
 
-- Apple issuer ID.
-- Apple key ID.
-- Apple private key.
-- Apple bundle ID.
-- Apple environment selector: sandbox or production.
-- Google service account credentials with Play Developer API access.
-- Google package name.
-- Pub/Sub verification configuration for Google RTDN.
+- `APPLE_APP_STORE_ISSUER_ID`
+- `APPLE_APP_STORE_KEY_ID`
+- `APPLE_APP_STORE_PRIVATE_KEY` or `APPLE_APP_STORE_PRIVATE_KEY_BASE64`
+- `APPLE_APP_STORE_BUNDLE_ID` (defaults to `com.forg3.sign`)
+- `APPLE_APP_STORE_ENVIRONMENT` (`sandbox` or `production`)
+- `GOOGLE_PLAY_PACKAGE_NAME` (defaults to `com.forg3.sign`)
+- `GOOGLE_PLAY_SERVICE_ACCOUNT_JSON`, `GOOGLE_PLAY_SERVICE_ACCOUNT_JSON_BASE64`, or `GOOGLE_APPLICATION_CREDENTIALS`
+- `GOOGLE_RTDN_VERIFICATION_TOKEN` or `BILLING_WEBHOOK_TOKEN` if Pub/Sub push uses a shared endpoint token.
 
 ## `/api/subscription/verify` Target Behavior
 
 1. Require authenticated owner bearer token.
 2. Accept provider, plan ID, product ID, purchase token or signed transaction payload.
-3. Verify Apple transactions through App Store Server API / signed JWS verification.
+3. Verify Apple transactions through App Store Server API and signed transaction payload parsing.
 4. Verify Google purchases through Play Developer API.
 5. Reject invalid, mismatched, refunded, canceled, or expired purchases.
 6. Persist entitlement only after server verification passes.
@@ -51,13 +51,13 @@ Phase 4 is blocked until App Store Connect, Google Play Console, sandbox product
 ## Lifecycle Webhook Targets
 
 - `POST /api/billing/apple/notifications`
-  - Verify App Store Server Notification v2 `signedPayload`.
-  - Reconcile renewals, expirations, refunds, grace periods, and billing retry.
+  - Decode App Store Server Notification v2 `signedPayload`.
+  - Reconcile renewals, expirations, refunds, grace periods, and billing retry for an existing verified subscription.
   - Store provider notification id idempotently.
 - `POST /api/billing/google/rtdn`
-  - Verify Google Pub/Sub push message.
-  - Use the purchase token from RTDN to query Play Developer API.
-  - Reconcile entitlement from provider source of truth.
+  - Require `GOOGLE_RTDN_VERIFICATION_TOKEN` / `BILLING_WEBHOOK_TOKEN` when configured.
+  - Store RTDN provider event id idempotently.
+  - Reconcile the existing subscription tied to the stored purchase-token hash.
 
 ## Native UI Requirements
 
@@ -71,5 +71,6 @@ Phase 4 is blocked until App Store Connect, Google Play Console, sandbox product
 
 - No Apple App Store Connect credentials are available in this repo/session.
 - No Google Play service account or package/product configuration is available.
+- No native StoreKit / Play Billing bridge is installed in the Capacitor shells yet; production UI now fails closed unless `window.Forg3NativeBilling.purchase()` returns a real purchase receipt/token.
 - No approved per-signature mobile billing model has been selected.
-- No public webhook endpoint is provisioned for Apple or Google notifications.
+- Apple notification JWS certificate-chain validation is not implemented; the endpoint only reconciles existing subscriptions and must not be treated as a standalone entitlement grant.

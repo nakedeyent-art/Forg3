@@ -152,6 +152,10 @@ export interface AccountSubscription {
   renewsAt: string;
   updatedAt: string;
   providerTransactionId?: string;
+  providerOriginalTransactionId?: string;
+  providerProductId?: string;
+  providerPurchaseTokenHash?: string;
+  providerEnvironment?: string;
   canceledAt?: string;
 }
 
@@ -183,6 +187,22 @@ export interface SignatureCharge {
   amountCents: number;
   status: SignatureChargeStatus;
   createdAt: string;
+}
+
+export interface BillingEvent {
+  id: string;
+  ownerEmail?: string;
+  billingProvider: BillingProvider;
+  providerEventId: string;
+  providerTransactionId?: string;
+  providerOriginalTransactionId?: string;
+  providerProductId?: string;
+  providerPurchaseTokenHash?: string;
+  planId?: PlanId;
+  eventType: string;
+  status: 'processed' | 'ignored' | 'failed';
+  receivedAt: string;
+  error?: string;
 }
 
 export interface EmailDelivery {
@@ -323,6 +343,7 @@ export type AuditEventType =
   | 'document.voided'
   | 'subscription.activated'
   | 'subscription.canceled'
+  | 'subscription.webhook_received'
   | 'account.exported'
   | 'account.deleted';
 
@@ -344,6 +365,7 @@ export interface StoreShape {
   documents: SigningDocument[];
   subscriptions: AccountSubscription[];
   signatureCharges: SignatureCharge[];
+  billingEvents: BillingEvent[];
   emailDeliveries: EmailDelivery[];
   templates: DocumentTemplate[];
   companies: CompanyProfile[];

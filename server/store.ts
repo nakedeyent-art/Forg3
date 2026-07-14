@@ -7,6 +7,7 @@ import type {
   AccountSubscription,
   AuditEvent,
   AuditEventType,
+  BillingEvent,
   CompanyProfile,
   DocumentTemplate,
   EmailDelivery,
@@ -100,6 +101,24 @@ export class DocumentStore {
     return this.read().subscriptions.find((subscription) => normalizeEmail(subscription.ownerEmail) === normalizedEmail);
   }
 
+  findSubscriptionByProviderTransactionId(providerTransactionId: string): AccountSubscription | undefined {
+    return this.read().subscriptions.find(
+      (subscription) => subscription.providerTransactionId === providerTransactionId
+    );
+  }
+
+  findSubscriptionByProviderOriginalTransactionId(providerOriginalTransactionId: string): AccountSubscription | undefined {
+    return this.read().subscriptions.find(
+      (subscription) => subscription.providerOriginalTransactionId === providerOriginalTransactionId
+    );
+  }
+
+  findSubscriptionByProviderPurchaseTokenHash(providerPurchaseTokenHash: string): AccountSubscription | undefined {
+    return this.read().subscriptions.find(
+      (subscription) => subscription.providerPurchaseTokenHash === providerPurchaseTokenHash
+    );
+  }
+
   upsertSubscription(subscription: AccountSubscription): AccountSubscription {
     const store = this.read();
     const normalizedEmail = normalizeEmail(subscription.ownerEmail);
@@ -135,6 +154,27 @@ export class DocumentStore {
     store.signatureCharges.push(charge);
     this.write(store);
     return charge;
+  }
+
+  getBillingEvent(billingProvider: BillingEvent['billingProvider'], providerEventId: string): BillingEvent | undefined {
+    return this.read().billingEvents.find(
+      (event) => event.billingProvider === billingProvider && event.providerEventId === providerEventId
+    );
+  }
+
+  addBillingEvent(event: BillingEvent): BillingEvent {
+    const store = this.read();
+    const existing = store.billingEvents.find(
+      (current) => current.billingProvider === event.billingProvider && current.providerEventId === event.providerEventId
+    );
+
+    if (existing) {
+      return existing;
+    }
+
+    store.billingEvents.push(event);
+    this.write(store);
+    return event;
   }
 
   deliveriesForOwner(ownerEmail: string): EmailDelivery[] {
@@ -501,6 +541,7 @@ export class DocumentStore {
     store.documents = store.documents.filter((document) => !matchesOwner(document.ownerEmail));
     store.subscriptions = store.subscriptions.filter((subscription) => !matchesOwner(subscription.ownerEmail));
     store.signatureCharges = store.signatureCharges.filter((charge) => !matchesOwner(charge.ownerEmail));
+    store.billingEvents = store.billingEvents.filter((event) => !event.ownerEmail || !matchesOwner(event.ownerEmail));
     store.emailDeliveries = store.emailDeliveries.filter((delivery) => !matchesOwner(delivery.ownerEmail));
     store.templates = store.templates.filter((template) => !matchesOwner(template.ownerEmail));
     store.companies = store.companies.filter((company) => !matchesOwner(company.ownerEmail));
@@ -522,6 +563,7 @@ export class DocumentStore {
         documents: [],
         subscriptions: [],
         signatureCharges: [],
+        billingEvents: [],
         emailDeliveries: [],
         templates: [],
         companies: [],
@@ -579,6 +621,7 @@ export class DocumentStore {
       documents: store.documents || [],
       subscriptions: store.subscriptions || [],
       signatureCharges: store.signatureCharges || [],
+      billingEvents: store.billingEvents || [],
       emailDeliveries: store.emailDeliveries || [],
       templates: store.templates || [],
       companies: store.companies || [],

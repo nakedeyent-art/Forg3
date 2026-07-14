@@ -53,6 +53,21 @@ export async function startSubscription(input: {
   });
 }
 
+export async function verifySubscription(input: {
+  planId: PlanId;
+  billingProvider: BillingProvider;
+  providerReceipt: string;
+  productId?: string;
+  transactionId?: string;
+  signedTransactionInfo?: string;
+  purchaseToken?: string;
+}) {
+  return request<SubscriptionResponse>('/api/subscription/verify', {
+    method: 'POST',
+    body: JSON.stringify(input)
+  });
+}
+
 export async function cancelSubscription() {
   return request<SubscriptionResponse>('/api/subscription/cancel', {
     method: 'POST'

@@ -1,4 +1,5 @@
 import { type ChangeEvent, type FormEvent, useEffect, useMemo, useState } from 'react';
+import { Capacitor } from '@capacitor/core';
 import {
   AlertCircle,
   BookOpen,
@@ -49,6 +50,7 @@ import {
   signAssignedDocument,
   signDocument,
   startSubscription,
+  verifySubscription,
   voidDocument
 } from './lib/api';
 import {
@@ -58,11 +60,13 @@ import {
   signIn
 } from './lib/auth';
 import { AuthControls, DeviceVerificationPanel, DeviceVerificationScreen } from './components/AuthPanels';
+import { PdfPreview } from './components/PdfPreview';
 import { SettingsScreen } from './screens/SettingsScreen';
 import { LegalScreen } from './screens/LegalScreen';
 import { downloadDataUrl, fileToDataUrl } from './lib/pdf';
 import type {
   AuthSession,
+  BillingProvider,
   CompanyProfile,
   DocumentTemplate,
   DocumentSummary,
@@ -77,6 +81,28 @@ import type {
   SubscriptionPlan
 } from './lib/types';
 import { SignaturePad } from './components/SignaturePad';
+
+interface NativeBillingPurchase {
+  providerReceipt: string;
+  productId?: string;
+  transactionId?: string;
+  signedTransactionInfo?: string;
+  purchaseToken?: string;
+}
+
+interface NativeBillingBridge {
+  purchase: (input: {
+    planId: PlanId;
+    billingProvider: Exclude<BillingProvider, 'demo' | 'stripe'>;
+    productId: string;
+  }) => Promise<NativeBillingPurchase>;
+}
+
+declare global {
+  interface Window {
+    Forg3NativeBilling?: NativeBillingBridge;
+  }
+}
 
 interface RouteState {
   kind: 'dashboard' | 'sign' | 'inbox' | 'assigned-sign' | 'settings' | 'terms' | 'privacy';
@@ -458,10 +484,15 @@ function Dashboard() {
     setMessage('');
 
     try {
-      const response = await startSubscription({
-        planId,
-        billingProvider: getBillingProviderForRuntime()
-      });
+      const billingProvider = getBillingProviderForRuntime();
+      const response =
+        billingProvider === 'demo'
+          ? await startSubscription({ planId, billingProvider })
+          : await verifySubscription({
+              planId,
+              billingProvider,
+              ...(await requestNativePurchase(planId, billingProvider, plans))
+            });
       setEntitlement(response.entitlement);
       setPlans(response.plans);
       await refreshFeatureSuite(setFeatureStatus, setCapabilities, setDeliveries, setTemplates, setCompany);
@@ -1855,7 +1886,12 @@ function SignerScreen({ access }: { access: SigningAccess }) {
               </div>
               <StatusChip status="sent" />
             </div>
-            <iframe title={document.title} src={fileDataUrl} sandbox="allow-downloads" />
+            <PdfPreview
+              fileDataUrl={fileDataUrl}
+              fileName={document.fileName}
+              title={document.title}
+              onDownload={() => downloadDataUrl(fileDataUrl, document.fileName)}
+            />
           </section>
 
           <form className="signature-panel" onSubmit={handleSign}>
@@ -2152,16 +2188,87 @@ function clampPercent(value: number) {
   return Math.min(Math.max(Math.round(value), 0), 100);
 }
 
-function getBillingProviderForRuntime() {
-  return 'demo' as const;
+function getBillingProviderForRuntime(): BillingProvider {
+  if (import.meta.env.DEV) {
+    return 'demo';
+  }
+
+  const platform = Capacitor.getPlatform();
+
+  if (platform === 'ios') {
+    return 'apple_app_store';
+  }
+
+  if (platform === 'android') {
+    return 'google_play';
+  }
+
+  return 'stripe';
 }
 
 function getBillingButtonLabel() {
-  return import.meta.env.DEV ? 'Start demo' : 'Verify purchase';
+  if (import.meta.env.DEV) {
+    return 'Start demo';
+  }
+
+  const platform = Capacitor.getPlatform();
+
+  if (platform === 'ios') {
+    return 'Buy with App Store';
+  }
+
+  if (platform === 'android') {
+    return 'Buy with Play Store';
+  }
+
+  return 'Native billing required';
 }
 
 function getBillingRuntimeLabel() {
-  return import.meta.env.DEV ? 'Demo billing' : 'Store billing pending';
+  if (import.meta.env.DEV) {
+    return 'Demo billing';
+  }
+
+  const platform = Capacitor.getPlatform();
+
+  if (platform === 'ios') {
+    return 'App Store billing';
+  }
+
+  if (platform === 'android') {
+    return 'Play Billing';
+  }
+
+  return 'Mobile billing only';
+}
+
+async function requestNativePurchase(
+  planId: PlanId,
+  billingProvider: BillingProvider,
+  plans: SubscriptionPlan[]
+) {
+  if (billingProvider !== 'apple_app_store' && billingProvider !== 'google_play') {
+    throw new Error('Native store billing is only available inside the iOS and Android apps.');
+  }
+
+  const plan = plans.find((current) => current.id === planId);
+  const productId = billingProvider === 'apple_app_store' ? plan?.appleProductId : plan?.googleProductId;
+
+  if (!productId) {
+    throw new Error('This plan is missing a native store product id.');
+  }
+
+  if (!window.Forg3NativeBilling) {
+    throw new Error('Native billing bridge is not installed in this build.');
+  }
+
+  const purchase = await window.Forg3NativeBilling.purchase({ planId, billingProvider, productId });
+
+  if (!purchase.providerReceipt) {
+    throw new Error('Native purchase did not return a receipt or purchase token.');
+  }
+
+  return purchase;
 }
 
 function namesMatch(left: string, right: string) {

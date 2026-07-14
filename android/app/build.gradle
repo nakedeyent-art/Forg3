@@ -1,5 +1,11 @@
 apply plugin: 'com.android.application'
 
+def forg3ReleaseStoreFile = project.findProperty("FORG3_UPLOAD_STORE_FILE") ?: System.getenv("FORG3_UPLOAD_STORE_FILE")
+def forg3ReleaseStorePassword = project.findProperty("FORG3_UPLOAD_STORE_PASSWORD") ?: System.getenv("FORG3_UPLOAD_STORE_PASSWORD")
+def forg3ReleaseKeyAlias = project.findProperty("FORG3_UPLOAD_KEY_ALIAS") ?: System.getenv("FORG3_UPLOAD_KEY_ALIAS")
+def forg3ReleaseKeyPassword = project.findProperty("FORG3_UPLOAD_KEY_PASSWORD") ?: System.getenv("FORG3_UPLOAD_KEY_PASSWORD")
+def forg3ReleaseSigningConfigured = forg3ReleaseStoreFile && forg3ReleaseStorePassword && forg3ReleaseKeyAlias && forg3ReleaseKeyPassword
+
 android {
     namespace "com.forg3.sign"
     compileSdk rootProject.ext.compileSdkVersion
@@ -16,8 +22,21 @@ android {
             ignoreAssetsPattern '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
+    signingConfigs {
+        release {
+            if (forg3ReleaseSigningConfigured) {
+                storeFile file(forg3ReleaseStoreFile)
+                storePassword forg3ReleaseStorePassword
+                keyAlias forg3ReleaseKeyAlias
+                keyPassword forg3ReleaseKeyPassword
+            }
+        }
+    }
     buildTypes {
         release {
+            if (forg3ReleaseSigningConfigured) {
+                signingConfig signingConfigs.release
+            }
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
         }

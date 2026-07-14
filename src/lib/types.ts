@@ -104,6 +104,10 @@ export interface AccountSubscription {
   renewsAt: string;
   updatedAt: string;
   providerTransactionId?: string;
+  providerOriginalTransactionId?: string;
+  providerProductId?: string;
+  providerPurchaseTokenHash?: string;
+  providerEnvironment?: string;
   canceledAt?: string;
 }
 

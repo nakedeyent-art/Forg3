@@ -6,6 +6,16 @@ import express, { type NextFunction, type Request, type Response } from 'express
 import rateLimit from 'express-rate-limit';
 import helmet from 'helmet';
 import {
+  decodeAppleNotification,
+  decodeGoogleRtdn,
+  hashProviderToken,
+  isAppleBillingConfigured,
+  isGoogleBillingConfigured,
+  isStoreBillingConfigured,
+  verifyStoreBillingReceipt,
+  type StoreBillingVerificationResult
+} from './billing.js';
+import {
   configureDeviceTrustVerifier,
   configureSessionVerifier,
   createEmailAuthToken,
@@ -836,7 +846,7 @@ app.post('/api/subscription/checkout', requireOwner, (request, response) => {
   response.status(201).json({ entitlement: getSubscriptionEntitlement(owner.email), plans: subscriptionPlans });
 });
 
-app.post('/api/subscription/verify', requireOwner, (request, response) => {
+app.post('/api/subscription/verify', requireOwner, async (request, response, next) => {
   const owner = request.owner!;
   const providerReceipt = String(request.body?.providerReceipt || '').trim();
   const planId = normalizePlanId(request.body?.planId);
@@ -847,38 +857,185 @@ app.post('/api/subscription/verify', requireOwner, (request, response) => {
     return;
   }
 
-  const verification = verifyProviderReceipt(providerReceipt, billingProvider);
+  const plan = subscriptionPlans.find((current) => current.id === planId);
 
-  if (!verification.verified) {
+  if (!plan) {
+    response.status(400).json({ error: 'Unknown planId.' });
+    return;
+  }
+
+  try {
+    const verification = await verifyStoreBillingReceipt({
+      billingProvider,
+      providerReceipt,
+      plan,
+      requestBody: request.body as Record<string, unknown>
+    });
+
+    if (!verification.verified) {
+      response.status(verification.requiredNextStep ? 501 : 422).json({
+        error: verification.error || 'Receipt verification failed.',
+        requiredNextStep: verification.requiredNextStep
+      });
+      return;
+    }
+
+    const subscription = upsertVerifiedSubscription(owner.email, owner.name || owner.email, planId, billingProvider, verification);
+    recordBillingEvent({
+      ownerEmail: owner.email,
+      billingProvider,
+      providerEventId: verification.providerEventId || verification.providerTransactionId || crypto.randomUUID(),
+      providerTransactionId: verification.providerTransactionId,
+      providerOriginalTransactionId: verification.providerOriginalTransactionId,
+      providerProductId: verification.providerProductId,
+      providerPurchaseTokenHash: verification.providerPurchaseTokenHash,
+      planId,
+      eventType: 'receipt.verified',
+      status: 'processed'
+    });
+
+    store.appendAuditEvent({
+      ownerEmail: owner.email,
+      actorEmail: owner.email,
+      type: 'subscription.activated',
+      message: `Subscription ${subscription.planId} was activated via ${billingProvider} receipt verification.`
+    });
+    response.status(201).json({ entitlement: getSubscriptionEntitlement(owner.email), plans: subscriptionPlans });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post('/api/billing/apple/notifications', async (request, response, next) => {
+  if (!isAppleBillingConfigured()) {
     response.status(501).json({
-      error: verification.error,
-      requiredNextStep: verification.requiredNextStep
+      error: 'Apple App Store Server Notifications are not configured.',
+      requiredNextStep: 'Configure App Store Server API credentials before accepting Apple subscription notifications.'
     });
     return;
   }
 
-  const now = new Date();
-  const renewalDays = getPlanRenewalDays(planId);
-  const subscription: AccountSubscription = {
-    ownerEmail: owner.email,
-    ownerName: owner.name || owner.email,
-    planId,
-    billingProvider,
-    status: 'active',
-    startedAt: now.toISOString(),
-    renewsAt: new Date(now.getTime() + renewalDays * 24 * 60 * 60 * 1000).toISOString(),
-    updatedAt: now.toISOString(),
-    providerTransactionId: verification.providerTransactionId
-  };
+  try {
+    const signedPayload = String(request.body?.signedPayload || '').trim();
 
-  store.upsertSubscription(subscription);
-  store.appendAuditEvent({
-    ownerEmail: owner.email,
-    actorEmail: owner.email,
-    type: 'subscription.activated',
-    message: `Subscription ${planId} was activated via ${billingProvider} receipt verification.`
-  });
-  response.status(201).json({ entitlement: getSubscriptionEntitlement(owner.email), plans: subscriptionPlans });
+    if (!signedPayload) {
+      response.status(400).json({ error: 'signedPayload is required.' });
+      return;
+    }
+
+    const notification = decodeAppleNotification(signedPayload);
+    const transaction = notification.transaction;
+    const providerEventId = notification.notificationUUID || hashProviderToken(signedPayload);
+
+    if (store.getBillingEvent('apple_app_store', providerEventId)) {
+      response.json({ duplicate: true, processed: false });
+      return;
+    }
+
+    const subscription =
+      (transaction?.transactionId && store.findSubscriptionByProviderTransactionId(transaction.transactionId)) ||
+      (transaction?.originalTransactionId &&
+        store.findSubscriptionByProviderOriginalTransactionId(transaction.originalTransactionId));
+    const nextSubscription = subscription
+      ? store.upsertSubscription({
+          ...subscription,
+          status: appleNotificationStatus(notification.notificationType, subscription.status),
+          renewsAt: transaction?.expiresDate ? new Date(Number(transaction.expiresDate)).toISOString() : subscription.renewsAt,
+          updatedAt: new Date().toISOString(),
+          providerTransactionId: transaction?.transactionId || subscription.providerTransactionId,
+          providerOriginalTransactionId: transaction?.originalTransactionId || subscription.providerOriginalTransactionId,
+          providerProductId: transaction?.productId || subscription.providerProductId,
+          providerEnvironment: transaction?.environment || subscription.providerEnvironment
+        })
+      : null;
+
+    recordBillingEvent({
+      ownerEmail: nextSubscription?.ownerEmail,
+      billingProvider: 'apple_app_store',
+      providerEventId,
+      providerTransactionId: transaction?.transactionId,
+      providerOriginalTransactionId: transaction?.originalTransactionId,
+      providerProductId: transaction?.productId,
+      planId: nextSubscription?.planId,
+      eventType: notification.subtype
+        ? `${notification.notificationType || 'unknown'}.${notification.subtype}`
+        : notification.notificationType || 'unknown',
+      status: nextSubscription ? 'processed' : 'ignored'
+    });
+
+    if (nextSubscription) {
+      store.appendAuditEvent({
+        ownerEmail: nextSubscription.ownerEmail,
+        actorEmail: 'apple_app_store',
+        type: 'subscription.webhook_received',
+        message: `Apple billing notification ${notification.notificationType || 'unknown'} reconciled.`
+      });
+    }
+
+    response.json({ processed: Boolean(nextSubscription) });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post('/api/billing/google/rtdn', async (request, response, next) => {
+  if (!isGoogleBillingConfigured()) {
+    response.status(501).json({
+      error: 'Google Play RTDN is not configured.',
+      requiredNextStep: 'Configure Google Play service-account credentials before accepting RTDN events.'
+    });
+    return;
+  }
+
+  if (!isGoogleRtdnRequestTrusted(request)) {
+    response.status(401).json({ error: 'Google RTDN verification token is missing or invalid.' });
+    return;
+  }
+
+  try {
+    const notification = decodeGoogleRtdn(request.body as Record<string, unknown>);
+
+    if (store.getBillingEvent('google_play', notification.eventId)) {
+      response.json({ duplicate: true, processed: false });
+      return;
+    }
+
+    const purchaseTokenHash = notification.purchaseToken ? hashProviderToken(notification.purchaseToken) : '';
+    const subscription = purchaseTokenHash
+      ? store.findSubscriptionByProviderPurchaseTokenHash(purchaseTokenHash)
+      : undefined;
+    const nextSubscription = subscription
+      ? store.upsertSubscription({
+          ...subscription,
+          status: googleNotificationStatus(notification.notificationType, subscription.status),
+          updatedAt: new Date().toISOString()
+        })
+      : null;
+
+    recordBillingEvent({
+      ownerEmail: nextSubscription?.ownerEmail,
+      billingProvider: 'google_play',
+      providerEventId: notification.eventId,
+      providerProductId: notification.productId,
+      providerPurchaseTokenHash: purchaseTokenHash || undefined,
+      planId: nextSubscription?.planId,
+      eventType: notification.notificationType || 'unknown',
+      status: nextSubscription ? 'processed' : 'ignored'
+    });
+
+    if (nextSubscription) {
+      store.appendAuditEvent({
+        ownerEmail: nextSubscription.ownerEmail,
+        actorEmail: 'google_play',
+        type: 'subscription.webhook_received',
+        message: `Google Play RTDN ${notification.notificationType || 'unknown'} reconciled.`
+      });
+    }
+
+    response.json({ processed: Boolean(nextSubscription) });
+  } catch (error) {
+    next(error);
+  }
 });
 
 app.post('/api/subscription/cancel', requireOwner, (request, response) => {
@@ -2693,7 +2850,7 @@ function getFeatureStatus() {
       mode: (process.env.STORE_BILLING_VERIFICATION_MODE === 'mock' ? 'mock' : 'provider_required') as
         | 'mock'
         | 'provider_required',
-      configured: process.env.STORE_BILLING_VERIFICATION_MODE === 'mock' || Boolean(process.env.STORE_BILLING_KEY)
+      configured: isStoreBillingConfigured()
     },
     objectStorage: objectStore.status(),
     certificateAuthoritySignatures: {
@@ -2753,29 +2910,101 @@ function assertProductionReadiness() {
   }
 }
 
-function verifyProviderReceipt(providerReceipt: string, billingProvider: BillingProvider) {
-  if (billingProvider === 'demo') {
-    return {
-      verified: process.env.NODE_ENV !== 'production',
-      providerTransactionId: `demo_verify_${crypto.randomUUID()}`,
-      error: 'Demo receipt verification is disabled in production.',
-      requiredNextStep: 'Use App Store, Play Billing, or Stripe receipt verification in production.'
-    };
-  }
-
-  if (process.env.STORE_BILLING_VERIFICATION_MODE === 'mock' && providerReceipt.startsWith('mock_receipt_')) {
-    return {
-      verified: true,
-      providerTransactionId: `${billingProvider}_${crypto.randomUUID()}`
-    };
-  }
-
-  return {
-    verified: false,
-    error: 'Live payment provider receipt verification is not configured.',
-    requiredNextStep:
-      'Configure App Store Server API, Google Play Developer API, or Stripe webhook verification before granting entitlement.'
+function upsertVerifiedSubscription(
+  ownerEmail: string,
+  ownerName: string,
+  planId: PlanId,
+  billingProvider: BillingProvider,
+  verification: StoreBillingVerificationResult
+) {
+  const now = new Date();
+  const renewalDays = getPlanRenewalDays(planId);
+  const subscription: AccountSubscription = {
+    ownerEmail,
+    ownerName,
+    planId,
+    billingProvider,
+    status: verification.status || 'active',
+    startedAt: now.toISOString(),
+    renewsAt:
+      verification.renewsAt || new Date(now.getTime() + renewalDays * 24 * 60 * 60 * 1000).toISOString(),
+    updatedAt: now.toISOString(),
+    providerTransactionId: verification.providerTransactionId,
+    providerOriginalTransactionId: verification.providerOriginalTransactionId,
+    providerProductId: verification.providerProductId,
+    providerPurchaseTokenHash: verification.providerPurchaseTokenHash,
+    providerEnvironment: verification.providerEnvironment
   };
+
+  return store.upsertSubscription(subscription);
+}
+
+function recordBillingEvent(event: {
+  ownerEmail?: string;
+  billingProvider: BillingProvider;
+  providerEventId: string;
+  providerTransactionId?: string;
+  providerOriginalTransactionId?: string;
+  providerProductId?: string;
+  providerPurchaseTokenHash?: string;
+  planId?: PlanId;
+  eventType: string;
+  status: 'processed' | 'ignored' | 'failed';
+  error?: string;
+}) {
+  return store.addBillingEvent({
+    id: crypto.randomUUID(),
+    receivedAt: new Date().toISOString(),
+    ...event
+  });
+}
+
+function appleNotificationStatus(notificationType: string, fallback: AccountSubscription['status']) {
+  if (['EXPIRED', 'REFUND', 'REVOKE'].includes(notificationType)) {
+    return 'canceled';
+  }
+
+  if (['DID_FAIL_TO_RENEW', 'GRACE_PERIOD_EXPIRED'].includes(notificationType)) {
+    return 'past_due';
+  }
+
+  if (['SUBSCRIBED', 'DID_RENEW', 'DID_CHANGE_RENEWAL_STATUS', 'DID_CHANGE_RENEWAL_PREF'].includes(notificationType)) {
+    return 'active';
+  }
+
+  return fallback;
+}
+
+function googleNotificationStatus(notificationType: string, fallback: AccountSubscription['status']) {
+  if (['3', '6', '12', '13', '20'].includes(notificationType)) {
+    return 'canceled';
+  }
+
+  if (['5', '10', '11'].includes(notificationType)) {
+    return 'past_due';
+  }
+
+  if (['1', '2', '4', '7', '8', '9', '19'].includes(notificationType)) {
+    return 'active';
+  }
+
+  return fallback;
+}
+
+function isGoogleRtdnRequestTrusted(request: Request) {
+  const expected = process.env.GOOGLE_RTDN_VERIFICATION_TOKEN || process.env.BILLING_WEBHOOK_TOKEN;
+
+  if (!expected) {
+    return true;
+  }
+
+  const provided = String(request.query.token || request.headers['x-forg3-webhook-token'] || '');
+
+  if (Buffer.byteLength(expected) !== Buffer.byteLength(provided)) {
+    return false;
+  }
+
+  return crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(provided));
 }
 
 function getOrCreateCompany(ownerEmail: string, ownerName: string) {
