@@ -5,6 +5,30 @@ const deviceKey = 'forg3.auth.device.v1';
 const apiBase = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/$/, '');
 const tokenRefreshWindowMs = 5 * 60 * 1000;
 
+function readStorage(key: string) {
+  try {
+    return globalThis.localStorage?.getItem(key) || null;
+  } catch {
+    return null;
+  }
+}
+
+function writeStorage(key: string, value: string) {
+  try {
+    globalThis.localStorage?.setItem(key, value);
+  } catch {
+    // Native WebViews can temporarily deny storage during startup. Auth retries from a clean state.
+  }
+}
+
+function removeStorage(key: string) {
+  try {
+    globalThis.localStorage?.removeItem(key);
+  } catch {
+    // Nothing to clear when the storage backend is unavailable.
+  }
+}
+
 export interface DeviceSecurityStatus {
   trusted: boolean;
   required: boolean;
@@ -41,7 +65,7 @@ export class AuthApiError extends Error {
 }
 
 export function getStoredSession(): AuthSession | null {
-  const raw = localStorage.getItem(sessionKey);
+  const raw = readStorage(sessionKey);
 
   if (!raw) {
     return null;
@@ -50,24 +74,24 @@ export function getStoredSession(): AuthSession | null {
   try {
     return JSON.parse(raw) as AuthSession;
   } catch {
-    localStorage.removeItem(sessionKey);
+    removeStorage(sessionKey);
     return null;
   }
 }
 
 export function clearStoredSession() {
-  localStorage.removeItem(sessionKey);
+  removeStorage(sessionKey);
 }
 
 export function getDeviceId() {
-  const existing = localStorage.getItem(deviceKey);
+  const existing = readStorage(deviceKey);
 
   if (existing) {
     return existing;
   }
 
   const next = globalThis.crypto?.randomUUID?.() || `device-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-  localStorage.setItem(deviceKey, next);
+  writeStorage(deviceKey, next);
   return next;
 }
 
@@ -113,7 +137,7 @@ export async function getAuthToken() {
       idToken,
       expiresAt: new Date(tokenResult.expirationTime).getTime()
     };
-    localStorage.setItem(sessionKey, JSON.stringify(refreshedSession));
+    writeStorage(sessionKey, JSON.stringify(refreshedSession));
     return idToken;
   }
 
@@ -124,7 +148,7 @@ export async function getAuthToken() {
 
   if (session.mode === 'demo' && import.meta.env.DEV) {
     const refreshedSession = await createDevSession(session.provider as 'google' | 'apple', session);
-    localStorage.setItem(sessionKey, JSON.stringify(refreshedSession));
+    writeStorage(sessionKey, JSON.stringify(refreshedSession));
     return refreshedSession.idToken || null;
   }
 
@@ -153,7 +177,7 @@ export async function signIn(provider: 'google' | 'apple'): Promise<AuthSession>
       idToken,
       expiresAt: new Date(tokenResult.expirationTime).getTime()
     };
-    localStorage.setItem(sessionKey, JSON.stringify(session));
+    writeStorage(sessionKey, JSON.stringify(session));
     return session;
   }
 
@@ -162,7 +186,7 @@ export async function signIn(provider: 'google' | 'apple'): Promise<AuthSession>
   }
 
   const session = await createDevSession(provider);
-  localStorage.setItem(sessionKey, JSON.stringify(session));
+  writeStorage(sessionKey, JSON.stringify(session));
   return session;
 }
 
@@ -202,7 +226,7 @@ export async function verifyEmailSignIn(input: {
     idToken: payload.token,
     expiresAt: Date.now() + 11 * 60 * 60 * 1000
   };
-  localStorage.setItem(sessionKey, JSON.stringify(session));
+  writeStorage(sessionKey, JSON.stringify(session));
   return session;
 }
 
