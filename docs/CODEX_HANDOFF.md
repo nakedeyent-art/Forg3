@@ -1,6 +1,6 @@
 # Codex Handoff — Forg3 Sign
 
-_Last updated: 2026-07-14 UTC (Codex session: native billing bridge, iOS build unblock, signed Android AAB, production-doc refresh)_
+_Last updated: 2026-07-14 UTC (Codex session: release hardening, branded native assets, Android hardware launch, iOS provisioning boundary)_
 
 ## Current live state
 
@@ -42,8 +42,10 @@ Mobile shells were rebuilt with `VITE_API_BASE_URL=https://forg3.nak3deye.com` a
 
 - Android debug APK: `.deploy/mobile/forg3-forg3-domain-debug.apk` (SHA-256 `b83a82b6d5c356461cfec06c4d09df42998ee1e99f472e05c853dc43d7877dca`)
 - Android signed release AAB for Play internal testing: `.deploy/mobile/forg3-play-internal-release.aab` (SHA-256 `3a919cc03275c1d27b04e65480f1776fe80270453e981fc0837445eed5e129ed`)
+- Current signed Android release AAB: `.deploy/mobile/forg3-1.0-build1-play-release-20260714T193733Z.aab` (SHA-256 `ed7d95271406cd946c713c2d4a4fd4f8a439926cb868841538a87bd427f60cf7`)
 - iOS simulator app zip: `.deploy/mobile/forg3-forg3-domain-ios-simulator-app.zip` (SHA-256 `f3b8275e24d506ea962fe096a3161a686c2407b1aedf96a7115862cba23a43e1`)
 - iOS unsigned device app zip: `.deploy/mobile/forg3-forg3-domain-ios-unsigned-device-app.zip` (SHA-256 `357251236bf3fb9083808c7d1fa396b193cbe83533796c3f771dc4495021b1df`)
+- Android hardware launch screenshot after refreshed branding: `.deploy/mobile/forg3-android-branded-launch-20260714T194736Z.png`.
 
 ## Architecture crib sheet
 
@@ -57,17 +59,19 @@ Mobile shells were rebuilt with `VITE_API_BASE_URL=https://forg3.nak3deye.com` a
 ## Remaining work (priority order agreed with owner)
 
 1. Managed DB + HTTPS staging: done and reverified on v4.
-2. Real-device iOS/Android QA (priority 9): Android debug, Android signed AAB, iOS simulator, and iOS device-SDK builds compile against `https://forg3.nak3deye.com`. Runtime QA is still pending because no Android device/emulator was available, and iOS install/TestFlight is blocked by missing Apple account provisioning in Xcode. Required test path: email login, device 2FA, upload PDF, send email link, recipient-only access, signing, sealed PDF download, native purchase, restore purchase, and manage subscription. In-app account deletion (Apple requirement) already exists at `#/settings`.
-3. Native billing (priority 7): server receipt-verification and webhook plumbing exists for Apple App Store Server API and Google Play Developer API, and native StoreKit 2 / Play Billing bridges now exist in the Capacitor shells. Remaining work is external store credentials/products, Apple notification certificate-chain validation, Google RTDN configuration, sandbox purchase tests, and the final per-signature billing model decision. Native mobile currently shows Pro/Business only; Pay Per Signature is hidden until the usage model is store-compliant. Product IDs are defined in `server/index.ts` (`com.forg3.sign.*` / `forg3_*`). See `docs/STORE_BILLING_IMPLEMENTATION.md`.
-4. iOS TestFlight upload: blocked until Xcode has the Apple developer account/team and provisioning profile for `com.forg3.sign`. Local code compilation is no longer the blocker.
-5. Legal review of `#/terms` / `#/privacy` before charging.
-6. Optional hardening: passkeys, CA-backed PAdES signing cert, relational schema for multi-instance scaling (`docs/PRODUCTION_PERSISTENCE.md`), OCI limit-increase ticket.
+2. Real-device iOS/Android QA (priority 9): Android debug installs and launches on device `57221FDCG001AA`; Android signed AAB builds with JDK 21. iOS simulator build succeeds. Full runtime QA is still pending for paid purchase/restore/manage flows because Apple/Google products and store credentials are not configured. Required final test path: email login, device 2FA, upload PDF, send email link, recipient-only access, signing, sealed PDF download, native purchase, restore purchase, and manage subscription. In-app account deletion (Apple requirement) already exists at `#/settings`.
+3. Native billing (priority 7): server receipt-verification and webhook plumbing exists for Apple App Store Server API and Google Play Developer API, and native StoreKit 2 / Play Billing bridges now exist in the Capacitor shells. Apple client StoreKit payloads are no longer trusted directly; the server verifies through App Store Server API before entitlement. Remaining work is external store credentials/products, Google RTDN configuration, sandbox purchase tests, and the final per-signature billing model decision. Native mobile currently shows Pro/Business only; Pay Per Signature is hidden until the usage model is store-compliant. Product IDs are defined in `server/index.ts` (`com.forg3.sign.*` / `forg3_*`). See `docs/STORE_BILLING_IMPLEMENTATION.md`.
+4. iOS TestFlight upload: blocked until Xcode has the Apple developer account/team and provisioning profile for `com.forg3.sign`. The archive attempt failed with `No Account for Team "37Z7Q5P4UG"` and `No profiles for 'com.forg3.sign' were found`. Local iOS simulator compilation is not the blocker.
+5. Legal review of `#/terms` / `#/privacy` before charging. Release-candidate copy and checklist live in `docs/LEGAL_COMPLIANCE_RELEASE.md`.
+6. Production infrastructure split: staging remains live, but paid launch needs dedicated production secrets/database/backups/monitoring. See `docs/PRODUCTION_LAUNCH_RUNBOOK.md`; `npm run verify:release-readiness` intentionally fails until production secrets and store credentials are installed.
+7. Optional hardening: passkeys, CA-backed PAdES signing cert, relational schema for multi-instance scaling (`docs/PRODUCTION_PERSISTENCE.md`), OCI limit-increase ticket.
 
 ## Gotchas
 
 - **Never** run staging without `FORG3_OBJECT_ENCRYPTION_KEY` — rotating it orphans existing sealed PDFs (key lives in `.deploy` and in the container env).
 - Login codes rate-limit hard (10/15min per IP, 30s resend cooldown) — during automated testing, reuse the trusted device id in `.deploy/forg3-v4-qa-device-id`.
 - Demo billing is disabled in production; the staging owner works because `FORG3_CREATOR_EMAILS=st@nak3deye.com` grants creator access.
+- Use `npm run build:mobile:release` before every native upload; it rebuilds with `VITE_API_BASE_URL=https://forg3.nak3deye.com`, syncs Capacitor, and verifies the generated mobile bundles.
 - Supabase MCP `execute_sql` runs as `postgres`, which cannot touch `forg3_app`-owned tables — connect as `forg3_app` (password in `.deploy/supabase-forg3app-password`) for data operations.
 - Supabase/app-role dumps must use `pg_dump --schema=forg3`; whole-database dumps can fail on provider-owned schemas.
 - PDF.js improved mobile signing reliability, but it also adds a large client asset (`pdf.worker` is about 2.2 MB and the main app chunk is above Vite's 500 KB warning threshold). Code-splitting the signing room is the next performance pass before broad launch.

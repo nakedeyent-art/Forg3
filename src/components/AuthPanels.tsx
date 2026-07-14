@@ -1,5 +1,6 @@
 import { type FormEvent, useEffect, useState } from 'react';
-import { KeyRound, Loader2, LogOut, PenLine, Send, ShieldCheck, Smartphone } from 'lucide-react';
+import { KeyRound, Loader2, LogOut, Send, ShieldCheck, Smartphone } from 'lucide-react';
+import { BrandMark } from './BrandMark';
 import {
   AuthApiError,
   checkDeviceSecurity,
@@ -309,9 +310,7 @@ export function DeviceVerificationScreen({
     <div className="signer-shell">
       <header className="signer-header">
         <a className="brand" href="#/">
-          <span className="brand-mark">
-            <PenLine size={20} />
-          </span>
+          <BrandMark />
           <span>
             <strong>Forg3</strong>
             <small>{context === 'recipient' ? 'Recipient verification' : 'Account verification'}</small>

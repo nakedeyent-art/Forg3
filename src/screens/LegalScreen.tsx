@@ -1,13 +1,12 @@
-import { FileText, PenLine, ShieldCheck } from 'lucide-react';
+import { FileText, ShieldCheck } from 'lucide-react';
+import { BrandMark } from '../components/BrandMark';
 
 export function LegalScreen({ page }: { page: 'terms' | 'privacy' }) {
   return (
     <div className="signer-shell settings-shell">
       <header className="signer-header">
         <a className="brand" href="#/">
-          <span className="brand-mark">
-            <PenLine size={20} />
-          </span>
+          <BrandMark />
           <span>
             <strong>Forg3</strong>
             <small>{page === 'terms' ? 'Terms of service' : 'Privacy policy'}</small>
@@ -36,13 +35,13 @@ function TermsContent() {
   return (
     <section className="documents-table settings-card legal-card">
       <h1>Forg3 — Terms of Service</h1>
-      <p className="legal-updated">Last updated: July 2026 · Pilot terms</p>
+      <p className="legal-updated">Last updated: July 14, 2026 · Release candidate terms</p>
 
       <h2>1. The service</h2>
       <p>
         Forg3 lets a sender upload a PDF, route it to named recipients by email, and collect electronic signatures.
-        Completed packets are sealed into a signed PDF with an audit certificate page. The service is currently offered
-        as a controlled pilot; features, pricing, and availability may change.
+        Completed packets are sealed into a signed PDF with an audit certificate page. Features, pricing, limits, and
+        availability may change as the service moves from release candidate to general availability.
       </p>
 
       <h2>2. Accounts and security</h2>
@@ -58,6 +57,8 @@ function TermsContent() {
         records the signer&apos;s confirmation, consent text, timestamps, and document hashes. You are responsible for
         confirming that electronic signatures are appropriate for your document type and jurisdiction; some documents
         (for example certain tax, payroll, or notarized forms) have additional legal requirements Forg3 does not manage.
+        Forg3 currently creates an electronic signature stamp and audit page, not a certificate-authority-backed PAdES
+        digital signature, unless a production signing-certificate provider is configured.
       </p>
 
       <h2>4. Your content</h2>
@@ -69,9 +70,10 @@ function TermsContent() {
 
       <h2>5. Billing</h2>
       <p>
-        Paid tiers are billed through the applicable app store or payment provider. Metered plans record a per-signature
-        charge when a packet is completed. Canceling stops future renewals; access continues until the end of the paid
-        period.
+        Paid tiers are billed through the applicable app store or payment provider. Mobile app purchases are verified
+        server-side before sending access is enabled. Metered plans record per-signature usage only after a packet is
+        completed. Canceling stops future renewals; access continues until the end of the paid period unless the store
+        provider reports a refund, revocation, failed renewal, grace-period end, or account hold.
       </p>
 
       <h2>6. Acceptable use</h2>
@@ -88,7 +90,7 @@ function TermsContent() {
       </p>
 
       <h2>8. Contact</h2>
-      <p>Questions about these terms: contact the account that sent you the document, or the Forg3 operator.</p>
+      <p>Questions about these terms: contact the account that sent you the document, or email st@nak3deye.com.</p>
     </section>
   );
 }
@@ -97,13 +99,13 @@ function PrivacyContent() {
   return (
     <section className="documents-table settings-card legal-card">
       <h1>Forg3 — Privacy Policy</h1>
-      <p className="legal-updated">Last updated: July 2026 · Pilot policy</p>
+      <p className="legal-updated">Last updated: July 14, 2026 · Release candidate policy</p>
 
       <h2>What we collect</h2>
       <p>
         Account email and display name; documents you upload and their sealed signed versions; signer names, emails, and
-        signature images; delivery records; device names and hashed device identifiers used for two-factor trust; and a
-        security audit trail of account and document events.
+        signature images; subscription entitlement records; delivery records; device names and hashed device identifiers
+        used for two-factor trust; and a security audit trail of account and document events.
       </p>
 
       <h2>What we do not collect</h2>
@@ -121,9 +123,11 @@ function PrivacyContent() {
 
       <h2>Retention and your controls</h2>
       <p>
-        Data is retained while your account is active. From Account settings you can export all account data as JSON,
-        revoke sessions and trusted devices, and permanently delete your account&apos;s documents, files, and history.
-        Deletion is immediate and irreversible.
+        Data is retained while your account is active, unless a longer retention period is required to complete a
+        transaction, keep billing records, resolve abuse, satisfy legal obligations, or preserve an agreed audit trail.
+        From Account settings you can export all account data as JSON, revoke sessions and trusted devices, and
+        permanently delete your account&apos;s documents, files, and history. Deletion is immediate and irreversible inside
+        the active application store; backups expire under the deployment retention policy.
       </p>
 
       <h2>Email delivery</h2>
@@ -134,7 +138,7 @@ function PrivacyContent() {
       </p>
 
       <h2>Changes</h2>
-      <p>This pilot policy may change as Forg3 moves toward general availability; material changes will be announced in the app.</p>
+      <p>Material privacy changes will be announced in the app or through the account email address.</p>
     </section>
   );
 }

@@ -1,6 +1,6 @@
 # Store Billing Implementation Runbook
 
-Phase 4 is code-implemented but not store-live. The server has fail-closed Apple App Store Server API and Google Play Developer API verification paths, plus idempotent Apple/Google webhook event logging. The iOS and Android Capacitor shells now include native purchase, restore, and manage-subscription bridges. The paid Apple Developer / App Store Connect and Google Play Console accounts exist, but live store entitlement still cannot be granted until store products, server credentials, and sandbox/live purchase tests are configured.
+Phase 4 is code-implemented but not store-live. The server has fail-closed Apple App Store Server API and Google Play Developer API verification paths, plus idempotent Apple/Google webhook event logging. Apple client-supplied StoreKit payloads are not trusted as the entitlement source; the server uses them only to identify the transaction, then verifies through Apple's App Store Server API before granting access. The iOS and Android Capacitor shells include native purchase, restore, and manage-subscription bridges. The paid Apple Developer / App Store Connect and Google Play Console accounts exist, but live store entitlement still cannot be granted until store products, server credentials, and sandbox/live purchase tests are configured.
 
 ## Official References Checked
 
@@ -73,10 +73,11 @@ Phase 4 is code-implemented but not store-live. The server has fail-closed Apple
 - Price disclosure before purchase, including annual base plus usage/credit model.
 - No demo checkout path in production builds.
 - Native mobile runtime currently shows Pro and Business only; Pay Per Signature is hidden until the usage model is store-compliant.
+- Paid production launches should set `FORG3_REQUIRE_STORE_BILLING=true`; production boot then refuses to start unless Apple and Google billing verification credentials are present.
 
 ## Blockers
 
 - Apple App Store Connect exists, but the subscription products, App Store Server API key, sandbox tester setup, and valid local provisioning profile are not installed in this repo/session.
 - Google Play Console exists, but the subscription products, Play Developer API service account, license tester setup, and RTDN Pub/Sub route are not installed in this repo/session.
 - No approved per-signature mobile billing model has been selected; Pay Per Signature must stay hidden on native builds until this is resolved.
-- Apple notification JWS certificate-chain validation is not implemented; the endpoint only reconciles existing subscriptions and must not be treated as a standalone entitlement grant.
+- Apple notification JWS signatures and certificate chains are validated before reconciliation, but sandbox/live notification delivery still needs to be tested from App Store Connect.

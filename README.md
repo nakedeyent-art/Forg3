@@ -156,6 +156,13 @@ npm run android:open
 
 For mobile production builds, deploy the Express API to an HTTPS host and set `VITE_API_BASE_URL` to that host before `npm run cap:sync`.
 
+The release-safe command for the current production origin is:
+
+```bash
+npm run build:mobile:release
+npm run verify:mobile-release
+```
+
 For subscription compliance, configure auto-renewable subscription products in App Store Connect and subscription products in Google Play Console, then connect native purchase receipt verification to the backend. See [docs/BILLING_AND_MOBILE.md](docs/BILLING_AND_MOBILE.md).
 
 ## Production notes
@@ -172,11 +179,12 @@ CI validates all of it: the smoke suite runs against both the file store and a r
 
 These still require external services, credentials, or human steps and are intentionally not faked in code:
 
-1. **Native billing.** App Store / Play Billing bridges and receipt verification endpoints exist, but the paid Apple/Google accounts still need store products, server credentials, sandbox testers, and purchase lifecycle tests before public release. See [docs/STORE_BILLING_IMPLEMENTATION.md](docs/STORE_BILLING_IMPLEMENTATION.md).
+1. **Native billing account setup.** App Store / Play Billing bridges and receipt verification endpoints exist, but the paid Apple/Google accounts still need store products, server credentials, sandbox testers, RTDN/App Store notification configuration, and purchase lifecycle tests before public release. See [docs/STORE_BILLING_IMPLEMENTATION.md](docs/STORE_BILLING_IMPLEMENTATION.md) and [docs/APP_STORE_SUBMISSION.md](docs/APP_STORE_SUBMISSION.md).
 2. **CA-backed PDF signatures** (PAdES) need a signing certificate/provider (`PDF_SIGNING_CERT_P12_BASE64`).
 3. **Real-device iOS/Android QA** and app-store compliance review.
-4. **Legal review** of the pilot terms/privacy text before charging outside customers.
-5. **Horizontal scaling.** The Postgres store is single-instance (in-process cache with write-through); scaling beyond one instance needs the relational schema in [docs/PRODUCTION_PERSISTENCE.md](docs/PRODUCTION_PERSISTENCE.md).
+4. **Legal review** of the release-candidate terms/privacy text before charging outside customers. See [docs/LEGAL_COMPLIANCE_RELEASE.md](docs/LEGAL_COMPLIANCE_RELEASE.md).
+5. **Production infrastructure split.** Staging is live, but paid launch needs separate production env/secrets, database, backup/restore, monitoring, and OCI DNS/IP decisions. See [docs/PRODUCTION_LAUNCH_RUNBOOK.md](docs/PRODUCTION_LAUNCH_RUNBOOK.md).
+6. **Horizontal scaling.** The Postgres store is single-instance (in-process cache with write-through); scaling beyond one instance needs the relational schema in [docs/PRODUCTION_PERSISTENCE.md](docs/PRODUCTION_PERSISTENCE.md).
 
 The Claude audit handoff lives at [docs/CLAUDE_AUDIT_HANDOFF.md](docs/CLAUDE_AUDIT_HANDOFF.md).
 

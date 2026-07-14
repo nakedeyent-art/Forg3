@@ -13,6 +13,9 @@
     "typecheck": "tsc -p tsconfig.app.json --noEmit && tsc -p tsconfig.server.json --noEmit",
     "smoke": "node scripts/smoke.mjs",
     "monitor:production": "node scripts/monitor-production.mjs",
+    "verify:mobile-release": "node scripts/verify-mobile-release-assets.mjs",
+    "verify:release-readiness": "node scripts/release-readiness.mjs",
+    "build:mobile:release": "node scripts/build-mobile-release.mjs",
     "cap:sync": "npm run build && cap sync",
     "ios:open": "npm run cap:sync && cap open ios",
     "android:open": "npm run cap:sync && cap open android"

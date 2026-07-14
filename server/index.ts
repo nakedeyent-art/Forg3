@@ -2935,6 +2935,24 @@ function assertProductionReadiness() {
     problems.push('FORG3_OBJECT_ENCRYPTION_KEY — 32-byte key (hex or base64) encrypting stored PDFs.');
   }
 
+  if (process.env.FORG3_REQUIRE_STORE_BILLING === 'true') {
+    if (!isAppleBillingConfigured()) {
+      problems.push(
+        'Apple Store billing — APPLE_APP_STORE_ISSUER_ID, APPLE_APP_STORE_KEY_ID, APPLE_APP_STORE_PRIVATE_KEY(_BASE64), and APPLE_APP_STORE_BUNDLE_ID.'
+      );
+    }
+
+    if (!isGoogleBillingConfigured()) {
+      problems.push(
+        'Google Play billing — GOOGLE_PLAY_PACKAGE_NAME and GOOGLE_PLAY_SERVICE_ACCOUNT_JSON(_BASE64) or GOOGLE_APPLICATION_CREDENTIALS.'
+      );
+    }
+
+    if (isGoogleBillingConfigured() && !process.env.GOOGLE_RTDN_VERIFICATION_TOKEN && !process.env.BILLING_WEBHOOK_TOKEN) {
+      problems.push('GOOGLE_RTDN_VERIFICATION_TOKEN — shared token for the Google Play RTDN push endpoint.');
+    }
+  }
+
   if (problems.length) {
     throw new Error(
       `Production configuration is incomplete. Set the following environment variables (see docs/DEPLOYMENT.md):\n- ${problems.join('\n- ')}`

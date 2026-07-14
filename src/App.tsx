@@ -66,6 +66,7 @@ import {
   type NativeBillingPurchase
 } from './lib/nativeBilling';
 import { AuthControls, DeviceVerificationPanel, DeviceVerificationScreen } from './components/AuthPanels';
+import { BrandMark } from './components/BrandMark';
 import { PdfPreview } from './components/PdfPreview';
 import { SettingsScreen } from './screens/SettingsScreen';
 import { LegalScreen } from './screens/LegalScreen';
@@ -736,9 +737,7 @@ function Dashboard() {
     <div className="app-shell">
       <header className="top-bar">
         <a className="brand" href="#/">
-          <span className="brand-mark">
-            <PenLine size={20} />
-          </span>
+          <BrandMark />
           <span>
             <strong>Forg3</strong>
             <small>Subscription e-signature desk</small>
@@ -1197,9 +1196,7 @@ function RecipientInboxScreen() {
     <div className="signer-shell">
       <header className="signer-header">
         <a className="brand" href="#/">
-          <span className="brand-mark">
-            <PenLine size={20} />
-          </span>
+          <BrandMark />
           <span>
             <strong>Forg3</strong>
             <small>Recipient inbox</small>
@@ -1899,9 +1896,7 @@ function SignerScreen({ access }: { access: SigningAccess }) {
     <div className="signer-shell">
       <header className="signer-header">
         <a className="brand" href="#/">
-          <span className="brand-mark">
-            <PenLine size={20} />
-          </span>
+          <BrandMark />
           <span>
             <strong>Forg3</strong>
             <small>Secure signing room</small>

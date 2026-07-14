@@ -82,13 +82,18 @@ a {
 .brand-mark {
   width: 42px;
   height: 42px;
-  display: grid;
-  place-items: center;
+  display: block;
   border-radius: 8px;
-  color: #ffffff;
-  background: #176b87;
-  box-shadow: inset 0 -10px 18px rgba(0, 0, 0, 0.14);
+  overflow: hidden;
+  background: #f8fbff;
+  box-shadow: inset 0 0 0 1px rgba(16, 44, 69, 0.08), 0 6px 16px rgba(16, 44, 69, 0.12);
   flex: 0 0 auto;
+}
+
+.brand-mark img {
+  display: block;
+  width: 100%;
+  height: 100%;
 }
 
 .brand strong {

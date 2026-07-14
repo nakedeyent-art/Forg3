@@ -6,6 +6,7 @@ const appleSandboxBaseUrl = 'https://api.storekit-sandbox.itunes.apple.com';
 const appleProductionBaseUrl = 'https://api.storekit.itunes.apple.com';
 const googleTokenUrl = 'https://oauth2.googleapis.com/token';
 const googleAndroidPublisherScope = 'https://www.googleapis.com/auth/androidpublisher';
+const appleRootCaG3Sha256Fingerprint = '63343abfb89a6a03ebb57e9b3f5fa7be7c4f5c756f3017b3a8c488c3653e9179';
 
 export interface StoreBillingVerificationInput {
   billingProvider: BillingProvider;
@@ -36,6 +37,13 @@ interface AppleTransactionPayload {
   productId?: string;
   revocationDate?: number | string;
   transactionId?: string;
+}
+
+interface AppleJwsHeader {
+  alg?: string;
+  kid?: string;
+  typ?: string;
+  x5c?: unknown;
 }
 
 interface GoogleSubscriptionPurchaseV2 {
@@ -108,13 +116,13 @@ export async function verifyStoreBillingReceipt(
 }
 
 export function decodeAppleNotification(signedPayload: string) {
-  const payload = decodeJwsPayload<Record<string, unknown>>(signedPayload);
+  const payload = decodeVerifiedAppleJwsPayload<Record<string, unknown>>(signedPayload);
   const notificationUUID = stringFrom(payload.notificationUUID);
   const notificationType = stringFrom(payload.notificationType);
   const subtype = stringFrom(payload.subtype);
   const data = isRecord(payload.data) ? payload.data : {};
   const signedTransactionInfo = stringFrom(data.signedTransactionInfo);
-  const transaction = signedTransactionInfo ? decodeJwsPayload<AppleTransactionPayload>(signedTransactionInfo) : null;
+  const transaction = signedTransactionInfo ? decodeVerifiedAppleJwsPayload<AppleTransactionPayload>(signedTransactionInfo) : null;
 
   return {
     notificationUUID,
@@ -168,7 +176,7 @@ async function verifyAppleReceipt(input: StoreBillingVerificationInput): Promise
     (signedTransactionInfo ? stringFrom(decodeJwsPayload<AppleTransactionPayload>(signedTransactionInfo).transactionId) : '') ||
     input.providerReceipt;
 
-  if (!transactionId && !signedTransactionInfo) {
+  if (!transactionId) {
     return {
       verified: false,
       error: 'Apple verification requires a transactionId or signedTransactionInfo.',
@@ -176,9 +184,9 @@ async function verifyAppleReceipt(input: StoreBillingVerificationInput): Promise
     };
   }
 
-  const transactionPayload = signedTransactionInfo
-    ? decodeJwsPayload<AppleTransactionPayload>(signedTransactionInfo)
-    : await fetchAppleTransaction(transactionId);
+  // Never trust a client-supplied StoreKit JWS as the entitlement source. Use it
+  // only to recover the transaction id, then verify through Apple's server API.
+  const transactionPayload = await fetchAppleTransaction(transactionId);
   const expectedBundleId = getAppleBundleId();
 
   if (transactionPayload.bundleId !== expectedBundleId) {
@@ -235,7 +243,7 @@ async function fetchAppleTransaction(transactionId: string): Promise<AppleTransa
     throw new Error('Apple transaction lookup did not return signedTransactionInfo.');
   }
 
-  return decodeJwsPayload<AppleTransactionPayload>(signedTransactionInfo);
+  return decodeVerifiedAppleJwsPayload<AppleTransactionPayload>(signedTransactionInfo);
 }
 
 async function verifyGooglePlayReceipt(input: StoreBillingVerificationInput): Promise<StoreBillingVerificationResult> {
@@ -385,13 +393,95 @@ function signJwtRs256(header: Record<string, unknown>, payload: Record<string, u
 }
 
 function decodeJwsPayload<T>(jws: string): T {
-  const [, payload] = jws.split('.');
+  return parseJws<T>(jws).payload;
+}
 
-  if (!payload) {
-    throw new Error('Expected a compact JWS payload.');
+function decodeVerifiedAppleJwsPayload<T>(jws: string): T {
+  const parsed = parseJws<T>(jws);
+  verifyAppleJwsSignature(parsed);
+  return parsed.payload;
+}
+
+function parseJws<T>(jws: string): {
+  header: AppleJwsHeader;
+  payload: T;
+  signingInput: string;
+  signature: Buffer;
+} {
+  const parts = jws.split('.');
+  const [encodedHeader, encodedPayload, encodedSignature] = parts;
+
+  if (parts.length !== 3 || !encodedHeader || !encodedPayload || !encodedSignature) {
+    throw new Error('Expected a compact JWS.');
   }
 
-  return JSON.parse(Buffer.from(payload, 'base64url').toString('utf8')) as T;
+  return {
+    header: JSON.parse(Buffer.from(encodedHeader, 'base64url').toString('utf8')) as AppleJwsHeader,
+    payload: JSON.parse(Buffer.from(encodedPayload, 'base64url').toString('utf8')) as T,
+    signingInput: `${encodedHeader}.${encodedPayload}`,
+    signature: Buffer.from(encodedSignature, 'base64url')
+  };
+}
+
+function verifyAppleJwsSignature(input: {
+  header: AppleJwsHeader;
+  signingInput: string;
+  signature: Buffer;
+}) {
+  if (input.header.alg !== 'ES256') {
+    throw new Error('Apple signed payload must use ES256.');
+  }
+
+  const x5c = Array.isArray(input.header.x5c)
+    ? input.header.x5c.filter((value): value is string => typeof value === 'string' && value.length > 0)
+    : [];
+
+  if (!x5c.length) {
+    throw new Error('Apple signed payload is missing an x5c certificate chain.');
+  }
+
+  const certificates = x5c.map((certificate) => new crypto.X509Certificate(Buffer.from(certificate, 'base64')));
+  const now = Date.now();
+
+  for (const certificate of certificates) {
+    const validFrom = Date.parse(certificate.validFrom);
+    const validTo = Date.parse(certificate.validTo);
+
+    if (Number.isFinite(validFrom) && now < validFrom) {
+      throw new Error('Apple signed payload certificate is not valid yet.');
+    }
+
+    if (Number.isFinite(validTo) && now > validTo) {
+      throw new Error('Apple signed payload certificate has expired.');
+    }
+  }
+
+  for (let index = 0; index < certificates.length - 1; index += 1) {
+    if (!certificates[index].verify(certificates[index + 1].publicKey)) {
+      throw new Error('Apple signed payload certificate chain is invalid.');
+    }
+  }
+
+  const root = certificates[certificates.length - 1];
+  if (!root.verify(root.publicKey)) {
+    throw new Error('Apple signed payload root certificate is not self-signed.');
+  }
+
+  const rootFingerprint = crypto.hash('sha256', root.raw).toLowerCase();
+  if (rootFingerprint !== appleRootCaG3Sha256Fingerprint) {
+    throw new Error('Apple signed payload certificate chain is not anchored to Apple Root CA - G3.');
+  }
+
+  const ok = crypto.verify(
+    'sha256',
+    Buffer.from(input.signingInput),
+    { key: certificates[0].publicKey, dsaEncoding: 'ieee-p1363' },
+    input.signature
+  );
+
+  if (!ok) {
+    throw new Error('Apple signed payload signature is invalid.');
+  }
 }
 
 function base64UrlJson(value: Record<string, unknown>) {

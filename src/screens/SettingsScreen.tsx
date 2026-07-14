@@ -7,7 +7,6 @@ import {
   Laptop,
   Loader2,
   LogOut,
-  PenLine,
   RefreshCcw,
   ScrollText,
   ShieldCheck,
@@ -30,6 +29,7 @@ import {
   revokeTrustedDevice
 } from '../lib/api';
 import { clearStoredSession, getStoredSession } from '../lib/auth';
+import { BrandMark } from '../components/BrandMark';
 import type {
   AuditEventSummary,
   AuthSession,
@@ -242,9 +242,7 @@ export function SettingsScreen() {
     <div className="signer-shell settings-shell">
       <header className="signer-header">
         <a className="brand" href="#/">
-          <span className="brand-mark">
-            <PenLine size={20} />
-          </span>
+          <BrandMark />
           <span>
             <strong>Forg3</strong>
             <small>Account and security</small>

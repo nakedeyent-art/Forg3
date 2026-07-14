@@ -53,6 +53,7 @@ Native billing:
 | `GOOGLE_PLAY_PACKAGE_NAME` | Android package name |
 | `GOOGLE_PLAY_SERVICE_ACCOUNT_JSON` or `GOOGLE_PLAY_SERVICE_ACCOUNT_JSON_BASE64` or `GOOGLE_APPLICATION_CREDENTIALS` | Google Play Developer API service account |
 | `GOOGLE_RTDN_VERIFICATION_TOKEN` or `BILLING_WEBHOOK_TOKEN` | Optional shared token for Google Pub/Sub push endpoint |
+| `FORG3_REQUIRE_STORE_BILLING` | Set `true` for paid mobile production so boot fails unless Apple/Google billing verification is configured |
 
 ## 3. Storage model
 
@@ -131,7 +132,7 @@ pending Postgres writes before exiting.
 - [ ] Backups scheduled (`pg_dump` cron or managed snapshots).
 - [ ] Restore drill completed against a disposable Postgres database.
 - [ ] DNS/health monitor scheduled.
-- [ ] For mobile shells: set `VITE_API_BASE_URL` to the public origin, rebuild, `npx cap sync`.
+- [ ] For mobile shells: run `npm run build:mobile:release` and `npm run verify:mobile-release`; this rebuilds with `VITE_API_BASE_URL=https://forg3.nak3deye.com` by default and verifies iOS/Android bundles.
 
 ## 6. Still outside this runbook
 
