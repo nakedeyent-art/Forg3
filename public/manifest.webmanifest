@@ -1,5 +1,5 @@
 {
-  "name": "Forg3 Sign",
+  "name": "Forg3",
   "short_name": "Forg3",
   "start_url": "/",
   "display": "standalone",
@@ -13,4 +13,3 @@
     }
   ]
 }
-

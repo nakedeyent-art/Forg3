@@ -246,7 +246,7 @@ export function SettingsScreen() {
             <PenLine size={20} />
           </span>
           <span>
-            <strong>Forg3 Sign</strong>
+            <strong>Forg3</strong>
             <small>Account and security</small>
           </span>
         </a>

@@ -139,7 +139,7 @@ export async function sealPdfWithSignatures(input: {
 
   pdfDoc.setTitle(`${input.title} - signed`);
   pdfDoc.setSubject(`Signed electronically by ${input.signers.map((signer) => signer.signerName).join(', ')}`);
-  pdfDoc.setProducer('Forg3 Sign');
+  pdfDoc.setProducer('Forg3');
   pdfDoc.setModificationDate(new Date(input.signers[input.signers.length - 1].signedAt));
 
   const signedBytes = await pdfDoc.save();
@@ -174,7 +174,7 @@ function drawAuditCertificate(
   const left = 54;
   let y = 724;
 
-  page.drawText('Forg3 Sign Audit Certificate', {
+  page.drawText('Forg3 Audit Certificate', {
     x: left,
     y,
     size: 18,
@@ -182,7 +182,7 @@ function drawAuditCertificate(
     color: rgb(0.05, 0.07, 0.09)
   });
   y -= 34;
-  page.drawText('This certificate summarizes the electronic signature event recorded by Forg3 Sign.', {
+  page.drawText('This certificate summarizes the electronic signature event recorded by Forg3.', {
     x: left,
     y,
     size: 10,

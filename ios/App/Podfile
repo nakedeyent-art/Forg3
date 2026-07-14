@@ -1,6 +1,6 @@
 require_relative '../../node_modules/@capacitor/ios/scripts/pods_helpers'
 
-platform :ios, '14.0'
+platform :ios, '15.0'
 use_frameworks!
 
 # workaround to avoid Xcode caching of Pods that requires
@@ -21,4 +21,19 @@ end
 
 post_install do |installer|
   assertDeploymentTarget(installer)
+
+  installer.pods_project.targets.each do |target|
+    target.build_configurations.each do |config|
+      config.build_settings['CODE_SIGNING_ALLOWED'] = 'NO'
+    end
+
+    next if target.shell_script_build_phases.any? { |phase| phase.name == 'Forg3 Strip Extended Attributes' }
+
+    phase = target.new_shell_script_build_phase('Forg3 Strip Extended Attributes')
+    phase.shell_script = <<-'SCRIPT'
+if [ -n "${TARGET_BUILD_DIR:-}" ] && [ -n "${FULL_PRODUCT_NAME:-}" ]; then
+  xattr -cr "${TARGET_BUILD_DIR}/${FULL_PRODUCT_NAME}" 2>/dev/null || true
+fi
+SCRIPT
+  end
 end

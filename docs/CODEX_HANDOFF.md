@@ -1,6 +1,6 @@
 # Codex Handoff — Forg3 Sign
 
-_Last updated: 2026-07-14 UTC (Codex session: billing verification plumbing, PDF preview fix, signed Android AAB, backup/restore drill, v3 cleanup)_
+_Last updated: 2026-07-14 UTC (Codex session: native billing bridge, iOS build unblock, signed Android AAB, production-doc refresh)_
 
 ## Current live state
 
@@ -57,9 +57,9 @@ Mobile shells were rebuilt with `VITE_API_BASE_URL=https://forg3.nak3deye.com` a
 ## Remaining work (priority order agreed with owner)
 
 1. Managed DB + HTTPS staging: done and reverified on v4.
-2. Real-device iOS/Android QA (priority 9): Android debug, Android signed AAB, iOS simulator, and iOS device-SDK builds compile against `https://forg3.nak3deye.com`. Runtime QA is still pending because no Android device/emulator was available, and iOS install/TestFlight is blocked by missing Apple account provisioning in Xcode. Required test path: email login, device 2FA, upload PDF, send email link, recipient-only access, signing, and sealed PDF download. In-app account deletion (Apple requirement) already exists at `#/settings`.
-3. Native billing (priority 7): server receipt-verification and webhook plumbing exists for Apple App Store Server API and Google Play Developer API, and production UI fails closed unless a native purchase bridge returns a real store payload. Remaining work is native StoreKit 2 / Play Billing bridge, store credentials/products, Apple notification certificate-chain validation, Google RTDN configuration, and the final per-signature billing model decision. Product IDs are defined in `server/index.ts` (`com.forg3.sign.*` / `forg3_*`). See `docs/STORE_BILLING_IMPLEMENTATION.md`.
-4. iOS TestFlight upload: blocked until Xcode has the Apple developer account/team and provisioning profile for `com.forg3.sign`.
+2. Real-device iOS/Android QA (priority 9): Android debug, Android signed AAB, iOS simulator, and iOS device-SDK builds compile against `https://forg3.nak3deye.com`. Runtime QA is still pending because no Android device/emulator was available, and iOS install/TestFlight is blocked by missing Apple account provisioning in Xcode. Required test path: email login, device 2FA, upload PDF, send email link, recipient-only access, signing, sealed PDF download, native purchase, restore purchase, and manage subscription. In-app account deletion (Apple requirement) already exists at `#/settings`.
+3. Native billing (priority 7): server receipt-verification and webhook plumbing exists for Apple App Store Server API and Google Play Developer API, and native StoreKit 2 / Play Billing bridges now exist in the Capacitor shells. Remaining work is external store credentials/products, Apple notification certificate-chain validation, Google RTDN configuration, sandbox purchase tests, and the final per-signature billing model decision. Native mobile currently shows Pro/Business only; Pay Per Signature is hidden until the usage model is store-compliant. Product IDs are defined in `server/index.ts` (`com.forg3.sign.*` / `forg3_*`). See `docs/STORE_BILLING_IMPLEMENTATION.md`.
+4. iOS TestFlight upload: blocked until Xcode has the Apple developer account/team and provisioning profile for `com.forg3.sign`. Local code compilation is no longer the blocker.
 5. Legal review of `#/terms` / `#/privacy` before charging.
 6. Optional hardening: passkeys, CA-backed PAdES signing cert, relational schema for multi-instance scaling (`docs/PRODUCTION_PERSISTENCE.md`), OCI limit-increase ticket.
 

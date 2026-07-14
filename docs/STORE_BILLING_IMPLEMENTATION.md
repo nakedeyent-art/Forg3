@@ -1,6 +1,6 @@
 # Store Billing Implementation Runbook
 
-Phase 4 is partially implemented. The server now has fail-closed Apple App Store Server API and Google Play Developer API verification paths, plus idempotent Apple/Google webhook event logging. It still cannot grant live store entitlement until store products and credentials are configured and the native iOS/Android purchase bridge returns real purchase payloads.
+Phase 4 is code-implemented but not store-live. The server has fail-closed Apple App Store Server API and Google Play Developer API verification paths, plus idempotent Apple/Google webhook event logging. The iOS and Android Capacitor shells now include native purchase, restore, and manage-subscription bridges. Live store entitlement still cannot be granted until store products, store credentials, and sandbox/live purchase tests are configured.
 
 ## Official References Checked
 
@@ -14,11 +14,9 @@ Phase 4 is partially implemented. The server now has fail-closed Apple App Store
 ## Required Product Setup
 
 - Apple subscription products:
-  - `com.forg3.sign.payper.yearly`
   - `com.forg3.sign.pro.monthly`
   - `com.forg3.sign.business.monthly`
 - Google Play products:
-  - `forg3_pay_per_signature_yearly`
   - `forg3_pro_monthly`
   - `forg3_business_monthly`
 - Per-signature billing model decision:
@@ -61,16 +59,16 @@ Phase 4 is partially implemented. The server now has fail-closed Apple App Store
 
 ## Native UI Requirements
 
-- StoreKit purchase and restore purchases on iOS.
-- Google Play Billing purchase and restore/query purchases on Android.
-- Manage Subscription link/action.
+- StoreKit purchase and restore purchases on iOS. Implemented in `ios/App/App/Forg3BillingPlugin.swift`.
+- Google Play Billing purchase and restore/query purchases on Android. Implemented in `android/app/src/main/java/com/forg3/sign/Forg3BillingPlugin.java`.
+- Manage Subscription link/action. Implemented through the native bridge.
 - Price disclosure before purchase, including annual base plus usage/credit model.
 - No demo checkout path in production builds.
+- Native mobile runtime currently shows Pro and Business only; Pay Per Signature is hidden until the usage model is store-compliant.
 
 ## Blockers
 
-- No Apple App Store Connect credentials are available in this repo/session.
-- No Google Play service account or package/product configuration is available.
-- No native StoreKit / Play Billing bridge is installed in the Capacitor shells yet; production UI now fails closed unless `window.Forg3NativeBilling.purchase()` returns a real purchase receipt/token.
-- No approved per-signature mobile billing model has been selected.
+- No Apple App Store Connect credentials, sandbox tester setup, or valid local provisioning profile are available in this repo/session.
+- No Google Play service account, package/product setup, license tester setup, or RTDN Pub/Sub route is available in this repo/session.
+- No approved per-signature mobile billing model has been selected; Pay Per Signature must stay hidden on native builds until this is resolved.
 - Apple notification JWS certificate-chain validation is not implemented; the endpoint only reconciles existing subscriptions and must not be treated as a standalone entitlement grant.

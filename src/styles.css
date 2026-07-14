@@ -685,6 +685,17 @@ input:focus {
   min-width: 0;
 }
 
+.billing-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.restore-button {
+  width: fit-content;
+}
+
 .billing-meter {
   min-width: 130px;
   padding-left: 14px;
@@ -1389,6 +1400,15 @@ input:focus {
   .billing-summary,
   .billing-active-row {
     flex-direction: column;
+  }
+
+  .billing-actions,
+  .restore-button {
+    width: 100%;
+  }
+
+  .billing-actions .secondary-button {
+    flex: 1 1 140px;
   }
 
   .billing-meter {

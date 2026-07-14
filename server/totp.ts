@@ -10,7 +10,7 @@ export function generateTotpSecret() {
   return base32Encode(crypto.randomBytes(20));
 }
 
-export function buildOtpAuthUrl(accountEmail: string, secret: string, issuer = 'Forg3 Sign') {
+export function buildOtpAuthUrl(accountEmail: string, secret: string, issuer = 'Forg3') {
   const label = `${encodeURIComponent(issuer)}:${encodeURIComponent(accountEmail)}`;
   return `otpauth://totp/${label}?secret=${secret}&issuer=${encodeURIComponent(issuer)}&algorithm=SHA1&digits=${digits}&period=${stepSeconds}`;
 }

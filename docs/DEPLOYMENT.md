@@ -134,9 +134,10 @@ pending Postgres writes before exiting.
 
 ## 6. Still outside this runbook
 
-- **Native purchase bridge** (StoreKit / Play Billing inside the Capacitor
-  shells) — the server verification endpoints are present; the native bridge,
-  store products, and credentials are still required. See
+- **Store-console launch work** — the native StoreKit / Play Billing bridge and
+  server verification endpoints are present, but App Store Connect products,
+  Google Play products, server credentials, sandbox testers, Google RTDN, and
+  Apple provisioning are still required. See
   [STORE_BILLING_IMPLEMENTATION.md](STORE_BILLING_IMPLEMENTATION.md).
 - **CA-backed PAdES signatures** — needs a signing certificate
   (`PDF_SIGNING_CERT_P12_BASE64`, `PDF_SIGNING_CERT_PASSWORD`).

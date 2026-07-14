@@ -218,7 +218,7 @@ app.use(['/api/auth/email/start', '/api/auth/mfa/start'], authCodeLimiter);
 app.use(['/api/auth/email/verify', '/api/auth/mfa/verify'], authVerifyLimiter);
 
 app.get('/api/health', (_request, response) => {
-  response.json({ ok: true, service: 'forg3-sign', time: new Date().toISOString() });
+  response.json({ ok: true, service: 'forg3', time: new Date().toISOString() });
 });
 
 if (devAuthEnabled()) {
@@ -1779,14 +1779,14 @@ void (async () => {
     await store.init();
     await objectStore.init();
   } catch (error) {
-    console.error('Forg3 Sign startup failed:', error instanceof Error ? error.message : error);
+    console.error('Forg3 startup failed:', error instanceof Error ? error.message : error);
     process.exit(1);
   }
 
   httpServer = app.listen(port, host, () => {
     const storage = objectStore.status();
     console.log(
-      `Forg3 Sign API listening at http://${host}:${port} ` +
+      `Forg3 API listening at http://${host}:${port} ` +
         `(storage: ${storage.mode}, encrypted at rest: ${storage.encryptedAtRest ? 'yes' : 'no'})`
     );
   });
@@ -2114,7 +2114,7 @@ async function createSignerDeliveries(input: {
     input.kind === 'reminder' ? 'This is a reminder to sign the document.' : 'Please review and sign the document.',
     signingUrl ? `Signing link: ${signingUrl}` : '',
     '',
-    'Forg3 Sign'
+    'Forg3'
   ].filter(Boolean);
   const body = bodyLines.join('\n');
 
@@ -2512,7 +2512,7 @@ async function sendMfaCodeEmail(toEmail: string, ownerName: string, deviceName: 
     '',
     'If you did not try to sign in, do not share this code.',
     '',
-    'Forg3 Sign'
+    'Forg3'
   ].join('\n');
 
   return sendEmailDelivery({
@@ -2535,7 +2535,7 @@ async function sendEmailLoginCode(toEmail: string, ownerName: string, deviceName
     '',
     'If you did not try to log in, do not share this code.',
     '',
-    'Forg3 Sign'
+    'Forg3'
   ].join('\n');
 
   return sendEmailDelivery({

@@ -9,7 +9,7 @@ export function LegalScreen({ page }: { page: 'terms' | 'privacy' }) {
             <PenLine size={20} />
           </span>
           <span>
-            <strong>Forg3 Sign</strong>
+            <strong>Forg3</strong>
             <small>{page === 'terms' ? 'Terms of service' : 'Privacy policy'}</small>
           </span>
         </a>
@@ -35,12 +35,12 @@ export function LegalScreen({ page }: { page: 'terms' | 'privacy' }) {
 function TermsContent() {
   return (
     <section className="documents-table settings-card legal-card">
-      <h1>Forg3 Sign — Terms of Service</h1>
+      <h1>Forg3 — Terms of Service</h1>
       <p className="legal-updated">Last updated: July 2026 · Pilot terms</p>
 
       <h2>1. The service</h2>
       <p>
-        Forg3 Sign lets a sender upload a PDF, route it to named recipients by email, and collect electronic signatures.
+        Forg3 lets a sender upload a PDF, route it to named recipients by email, and collect electronic signatures.
         Completed packets are sealed into a signed PDF with an audit certificate page. The service is currently offered
         as a controlled pilot; features, pricing, and availability may change.
       </p>
@@ -96,7 +96,7 @@ function TermsContent() {
 function PrivacyContent() {
   return (
     <section className="documents-table settings-card legal-card">
-      <h1>Forg3 Sign — Privacy Policy</h1>
+      <h1>Forg3 — Privacy Policy</h1>
       <p className="legal-updated">Last updated: July 2026 · Pilot policy</p>
 
       <h2>What we collect</h2>

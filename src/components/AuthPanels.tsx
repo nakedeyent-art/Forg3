@@ -313,7 +313,7 @@ export function DeviceVerificationScreen({
             <PenLine size={20} />
           </span>
           <span>
-            <strong>Forg3 Sign</strong>
+            <strong>Forg3</strong>
             <small>{context === 'recipient' ? 'Recipient verification' : 'Account verification'}</small>
           </span>
         </a>

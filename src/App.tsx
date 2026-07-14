@@ -59,6 +59,12 @@ import {
   getStoredSession,
   signIn
 } from './lib/auth';
+import {
+  manageNativeSubscriptions,
+  purchaseNativeSubscription,
+  restoreNativePurchases,
+  type NativeBillingPurchase
+} from './lib/nativeBilling';
 import { AuthControls, DeviceVerificationPanel, DeviceVerificationScreen } from './components/AuthPanels';
 import { PdfPreview } from './components/PdfPreview';
 import { SettingsScreen } from './screens/SettingsScreen';
@@ -81,28 +87,6 @@ import type {
   SubscriptionPlan
 } from './lib/types';
 import { SignaturePad } from './components/SignaturePad';
-
-interface NativeBillingPurchase {
-  providerReceipt: string;
-  productId?: string;
-  transactionId?: string;
-  signedTransactionInfo?: string;
-  purchaseToken?: string;
-}
-
-interface NativeBillingBridge {
-  purchase: (input: {
-    planId: PlanId;
-    billingProvider: Exclude<BillingProvider, 'demo' | 'stripe'>;
-    productId: string;
-  }) => Promise<NativeBillingPurchase>;
-}
-
-declare global {
-  interface Window {
-    Forg3NativeBilling?: NativeBillingBridge;
-  }
-}
 
 interface RouteState {
   kind: 'dashboard' | 'sign' | 'inbox' | 'assigned-sign' | 'settings' | 'terms' | 'privacy';
@@ -504,6 +488,69 @@ function Dashboard() {
     }
   };
 
+  const handleRestoreSubscription = async () => {
+    if (!session) {
+      setMessage('Sign in first.');
+      return;
+    }
+
+    setBusy('restore-subscription');
+    setMessage('');
+
+    try {
+      const billingProvider = getBillingProviderForRuntime();
+      if (billingProvider !== 'apple_app_store' && billingProvider !== 'google_play') {
+        throw new Error('Restore purchases is only available inside the iOS and Android apps.');
+      }
+
+      const restored = await restoreNativePurchases({ billingProvider });
+      const restoredPurchase = restored.purchases
+        .map((purchase) => ({ purchase, plan: findPlanForNativePurchase(purchase, billingProvider, plans) }))
+        .find((entry) => Boolean(entry.plan));
+
+      if (!restoredPurchase?.plan) {
+        throw new Error('No active Forg3 store subscription was found for this account.');
+      }
+
+      const response = await verifySubscription({
+        planId: restoredPurchase.plan.id,
+        billingProvider,
+        ...restoredPurchase.purchase
+      });
+      setEntitlement(response.entitlement);
+      setPlans(response.plans);
+      await refreshFeatureSuite(setFeatureStatus, setCapabilities, setDeliveries, setTemplates, setCompany);
+      setMessage(`${response.entitlement.plan?.name || 'Subscription'} restored.`);
+    } catch (error) {
+      setMessage(getErrorMessage(error));
+    } finally {
+      setBusy('');
+    }
+  };
+
+  const handleManageSubscription = async () => {
+    const billingProvider = getBillingProviderForRuntime();
+    const productId = entitlement?.plan
+      ? billingProvider === 'apple_app_store'
+        ? entitlement.plan.appleProductId
+        : billingProvider === 'google_play'
+          ? entitlement.plan.googleProductId
+          : undefined
+      : undefined;
+
+    setBusy('manage-subscription');
+    setMessage('');
+
+    try {
+      await manageNativeSubscriptions({ productId });
+      setMessage('Subscription management opened.');
+    } catch (error) {
+      setMessage(getErrorMessage(error));
+    } finally {
+      setBusy('');
+    }
+  };
+
   const handleCancelSubscription = async () => {
     if (!session) {
       return;
@@ -693,7 +740,7 @@ function Dashboard() {
             <PenLine size={20} />
           </span>
           <span>
-            <strong>Forg3 Sign</strong>
+            <strong>Forg3</strong>
             <small>Subscription e-signature desk</small>
           </span>
         </a>
@@ -939,6 +986,8 @@ function Dashboard() {
             busy={busy}
             entitlement={entitlement}
             onCancel={() => void handleCancelSubscription()}
+            onManage={() => void handleManageSubscription()}
+            onRestore={() => void handleRestoreSubscription()}
             onStart={(planId) => void handleStartSubscription(planId)}
             plans={plans}
             signedIn={Boolean(session)}
@@ -1152,7 +1201,7 @@ function RecipientInboxScreen() {
             <PenLine size={20} />
           </span>
           <span>
-            <strong>Forg3 Sign</strong>
+            <strong>Forg3</strong>
             <small>Recipient inbox</small>
           </span>
         </a>
@@ -1444,7 +1493,7 @@ function InstructionManual() {
       <div className="manual-heading">
         <div>
           <span className="eyebrow">Instruction manual</span>
-          <h2 id="manual-title">How Forg3 Sign works</h2>
+          <h2 id="manual-title">How Forg3 works</h2>
         </div>
         <BookOpen size={24} />
       </div>
@@ -1554,7 +1603,7 @@ function InstructionManual() {
           <h3>Tier matrix</h3>
         </div>
 
-        <div className="tier-table" role="table" aria-label="Forg3 Sign subscription tiers">
+        <div className="tier-table" role="table" aria-label="Forg3 subscription tiers">
           <div className="tier-row tier-head" role="row">
             <span role="columnheader">Feature</span>
             <span role="columnheader">Pay Per Signature</span>
@@ -1588,6 +1637,8 @@ function SubscriptionPanel({
   busy,
   entitlement,
   onCancel,
+  onManage,
+  onRestore,
   onStart,
   plans,
   signedIn
@@ -1595,12 +1646,16 @@ function SubscriptionPanel({
   busy: string;
   entitlement: SubscriptionEntitlement | null;
   onCancel: () => void;
+  onManage: () => void;
+  onRestore: () => void;
   onStart: (planId: PlanId) => void;
   plans: SubscriptionPlan[];
   signedIn: boolean;
 }) {
   const activePlan = entitlement?.active ? entitlement.plan : null;
   const usageSummary = entitlement?.usageSummary;
+  const storePlans = getVisiblePlansForRuntime(plans);
+  const nativeStoreBilling = isNativeStoreBillingRuntime();
 
   return (
     <section className="billing-panel">
@@ -1617,6 +1672,17 @@ function SubscriptionPanel({
           {entitlement?.creatorAccess ? 'creator' : entitlement?.active ? 'active' : entitlement?.status || 'inactive'}
         </span>
       </div>
+      {nativeStoreBilling && !entitlement?.active && (
+        <button
+          className="secondary-button restore-button"
+          type="button"
+          onClick={onRestore}
+          disabled={!signedIn || busy === 'restore-subscription'}
+        >
+          {busy === 'restore-subscription' ? <Loader2 className="spin" size={16} /> : <RefreshCcw size={16} />}
+          Restore purchase
+        </button>
+      )}
 
       {entitlement?.active ? (
         <div className="billing-active-row">
@@ -1644,46 +1710,68 @@ function SubscriptionPanel({
             </div>
           )}
           {activePlan && (
-            <button
-              className="secondary-button"
-              type="button"
-              onClick={onCancel}
-              disabled={busy === 'cancel-subscription'}
-            >
-              {busy === 'cancel-subscription' ? <Loader2 className="spin" size={16} /> : <X size={16} />}
-              Cancel
-            </button>
+            <div className="billing-actions">
+              {nativeStoreBilling && (
+                <button
+                  className="secondary-button"
+                  type="button"
+                  onClick={onManage}
+                  disabled={busy === 'manage-subscription'}
+                >
+                  {busy === 'manage-subscription' ? <Loader2 className="spin" size={16} /> : <ExternalLink size={16} />}
+                  Manage
+                </button>
+              )}
+              <button
+                className="secondary-button"
+                type="button"
+                onClick={onCancel}
+                disabled={busy === 'cancel-subscription'}
+              >
+                {busy === 'cancel-subscription' ? <Loader2 className="spin" size={16} /> : <X size={16} />}
+                Cancel
+              </button>
+            </div>
           )}
         </div>
       ) : (
-        <div className="plan-grid">
-          {plans.map((plan) => (
-            <article className="plan-card" key={plan.id}>
-              <div>
-                <h3>{plan.name}</h3>
-                <p>
-                  <strong>{plan.priceLabel}</strong>/{plan.cadence}
-                </p>
-                {plan.usagePriceLabel && <span className="usage-line">+ {plan.usagePriceLabel}</span>}
-                {plan.billingNote && <small className="plan-note">{plan.billingNote}</small>}
-              </div>
-              <ul>
-                {plan.features.slice(0, 3).map((feature) => (
-                  <li key={feature}>{feature}</li>
-                ))}
-              </ul>
-              <button
-                className="primary-button"
-                type="button"
-                onClick={() => onStart(plan.id)}
-                disabled={!signedIn || busy === `subscribe-${plan.id}`}
-              >
-                {busy === `subscribe-${plan.id}` ? <Loader2 className="spin" size={17} /> : <CreditCard size={17} />}
-                {getBillingButtonLabel()}
-              </button>
-            </article>
-          ))}
-        </div>
+        <>
+          <div className="plan-grid">
+            {storePlans.map((plan) => (
+              <article className="plan-card" key={plan.id}>
+                <div>
+                  <h3>{plan.name}</h3>
+                  <p>
+                    <strong>{plan.priceLabel}</strong>/{plan.cadence}
+                  </p>
+                  {plan.usagePriceLabel && <span className="usage-line">+ {plan.usagePriceLabel}</span>}
+                  {plan.billingNote && <small className="plan-note">{plan.billingNote}</small>}
+                </div>
+                <ul>
+                  {plan.features.slice(0, 3).map((feature) => (
+                    <li key={feature}>{feature}</li>
+                  ))}
+                </ul>
+                <button
+                  className="primary-button"
+                  type="button"
+                  onClick={() => onStart(plan.id)}
+                  disabled={!signedIn || busy === `subscribe-${plan.id}`}
+                >
+                  {busy === `subscribe-${plan.id}` ? <Loader2 className="spin" size={17} /> : <CreditCard size={17} />}
+                  {getBillingButtonLabel()}
+                </button>
+              </article>
+            ))}
+          </div>
+          {nativeStoreBilling && storePlans.length !== plans.length && (
+            <div className="inline-note">
+              <ShieldCheck size={16} />
+              Pay Per Signature will launch on mobile after the per-signature model is packaged as store-managed
+              credits.
+            </div>
+          )}
+        </>
       )}
     </section>
   );
@@ -1815,7 +1903,7 @@ function SignerScreen({ access }: { access: SigningAccess }) {
             <PenLine size={20} />
           </span>
           <span>
-            <strong>Forg3 Sign</strong>
+            <strong>Forg3</strong>
             <small>Secure signing room</small>
           </span>
         </a>
@@ -2206,6 +2294,23 @@ function getBillingProviderForRuntime(): BillingProvider {
   return 'stripe';
 }
 
+function isNativeStoreBillingRuntime() {
+  if (import.meta.env.DEV) {
+    return false;
+  }
+
+  const platform = Capacitor.getPlatform();
+  return platform === 'ios' || platform === 'android';
+}
+
+function getVisiblePlansForRuntime(plans: SubscriptionPlan[]) {
+  if (!isNativeStoreBillingRuntime()) {
+    return plans;
+  }
+
+  return plans.filter((plan) => plan.billingModel === 'flat');
+}
+
 function getBillingButtonLabel() {
   if (import.meta.env.DEV) {
     return 'Start demo';
@@ -2258,17 +2363,31 @@ async function requestNativePurchase(
     throw new Error('This plan is missing a native store product id.');
   }
 
-  if (!window.Forg3NativeBilling) {
-    throw new Error('Native billing bridge is not installed in this build.');
-  }
-
-  const purchase = await window.Forg3NativeBilling.purchase({ planId, billingProvider, productId });
+  const purchase = await purchaseNativeSubscription({ planId, billingProvider, productId });
 
   if (!purchase.providerReceipt) {
     throw new Error('Native purchase did not return a receipt or purchase token.');
   }
 
   return purchase;
+}
+
+function findPlanForNativePurchase(
+  purchase: NativeBillingPurchase,
+  billingProvider: Exclude<BillingProvider, 'demo' | 'stripe'>,
+  plans: SubscriptionPlan[]
+) {
+  if (!purchase.productId) {
+    return null;
+  }
+
+  return (
+    plans.find((plan) =>
+      billingProvider === 'apple_app_store'
+        ? plan.appleProductId === purchase.productId
+        : plan.googleProductId === purchase.productId
+    ) || null
+  );
 }
 
 function namesMatch(left: string, right: string) {
