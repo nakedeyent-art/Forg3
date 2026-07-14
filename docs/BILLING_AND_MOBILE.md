@@ -4,6 +4,8 @@ Forg3 Sign is structured as a subscription app. The current local build includes
 
 Native builds now include StoreKit 2 / Google Play Billing bridges. Production entitlement is still server-verified: a native purchase must return a real Apple signed transaction payload or Google purchase token, and `/api/subscription/verify` must accept it before the account becomes active.
 
+No customer can send signature requests without an active entitlement. The backend blocks document creation, signing-link rotation, and reminder-email link issuance with `402` when the owner has no active plan. Creator-unlimited accounts are the only configured exception.
+
 ## Subscription Products
 
 | Plan | Price label | Apple product ID | Google product ID |
@@ -12,7 +14,7 @@ Native builds now include StoreKit 2 / Google Play Billing bridges. Production e
 | Forg3 Pro | `$19/month` | `com.forg3.sign.pro.monthly` | `forg3_pro_monthly` |
 | Forg3 Business | `$49/month` | `com.forg3.sign.business.monthly` | `forg3_business_monthly` |
 
-The local default metered fee is `$0.99` per completed signature. Set `PAY_PER_SIGNATURE_FEE_CENTS` to change the usage fee without changing code.
+The local default metered fee is `$0.99` per completed signature. Set `PAY_PER_SIGNATURE_FEE_CENTS` to change the usage fee without changing code. Pay Per Signature still requires the `$12/year` base subscription before any signing link can be created or emailed.
 
 Mobile launch note: native iOS/Android builds currently show Pro and Business only. Pay Per Signature remains available to the web/server model, but it is intentionally hidden in native store runtime until the per-signature fee is packaged as store-managed consumable credits, prepaid entitlement, or another policy-approved billing path.
 
@@ -21,6 +23,7 @@ Mobile launch note: native iOS/Android builds currently show Pro and Business on
 - The API stores account subscription records in `data/forg3-store.json`.
 - `POST /api/subscription/checkout` activates a local demo subscription.
 - `POST /api/documents` rejects link creation with `402` when entitlement is inactive.
+- `POST /api/documents/:id/rotate-link` and `POST /api/documents/:id/remind` also reject link issuance with `402` when entitlement is inactive.
 - Completed signatures under the pay-per-signature plan create local usage charge records.
 - `POST /api/subscription/verify` is reserved for production receipt verification.
 - iOS and Android Capacitor shells already exist under `ios/` and `android/`.
@@ -32,7 +35,7 @@ Mobile launch note: native iOS/Android builds currently show Pro and Business on
 
 ## iOS Production Path
 
-1. In App Store Connect, create an auto-renewable subscription group.
+1. In App Store Connect, create an auto-renewable subscription group from the paid developer account.
 2. Add `com.forg3.sign.pro.monthly` and `com.forg3.sign.business.monthly` as subscription products for the first mobile launch.
 3. Enable in-app purchases for bundle id `com.forg3.sign` and make sure the signing profile covers the capability.
 4. Configure `APPLE_APP_STORE_ISSUER_ID`, `APPLE_APP_STORE_KEY_ID`, and `APPLE_APP_STORE_PRIVATE_KEY` on the server.

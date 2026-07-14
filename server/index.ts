@@ -1367,10 +1367,15 @@ app.post('/api/documents', requireOwner, async (request, response) => {
 });
 
 app.post('/api/documents/:id/rotate-link', requireOwner, (request, response) => {
+  const owner = request.owner!;
   const document = store.get(String(request.params.id));
 
-  if (!document || !sameEmail(document.ownerEmail, request.owner!.email)) {
+  if (!document || !sameEmail(document.ownerEmail, owner.email)) {
     response.status(404).json({ error: 'Document not found.' });
+    return;
+  }
+
+  if (!requireSigningLinkEntitlement(owner.email, response)) {
     return;
   }
 
@@ -1409,8 +1414,8 @@ app.post('/api/documents/:id/rotate-link', requireOwner, (request, response) => 
   });
 
   store.appendAuditEvent({
-    ownerEmail: request.owner!.email,
-    actorEmail: request.owner!.email,
+    ownerEmail: owner.email,
+    actorEmail: owner.email,
     type: 'document.link_rotated',
     message: `Signing links were rotated for "${document.title}".`,
     documentId: document.id
@@ -1421,6 +1426,11 @@ app.post('/api/documents/:id/rotate-link', requireOwner, (request, response) => 
 
 app.post('/api/documents/:id/remind', requireOwner, async (request, response) => {
   const owner = request.owner!;
+
+  if (!requireSigningLinkEntitlement(owner.email, response)) {
+    return;
+  }
+
   const gate = requireCapability(owner.email, 'reminders', response);
 
   if (!gate) {
@@ -2775,12 +2785,18 @@ function getCapabilitiesForOwner(ownerEmail: string) {
     return getCapabilitiesForPlan(highestTierPlanId, true);
   }
 
+  if (!entitlement.active) {
+    return getCapabilitiesForPlan(null, false);
+  }
+
   return getCapabilitiesForPlan(planId, entitlement.unlimitedAccess);
 }
 
 function getDocumentCreationBlock(ownerEmail: string, entitlement: SubscriptionEntitlement) {
-  if (!entitlement.active) {
-    return 'An active Forg3 subscription is required before creating signing links.';
+  const entitlementBlock = getSigningLinkEntitlementBlock(entitlement);
+
+  if (entitlementBlock) {
+    return entitlementBlock;
   }
 
   if (entitlement.unlimitedAccess || entitlement.creatorAccess || entitlement.packetLimit === null) {
@@ -2798,6 +2814,26 @@ function getDocumentCreationBlock(ownerEmail: string, entitlement: SubscriptionE
   }
 
   return null;
+}
+
+function getSigningLinkEntitlementBlock(entitlement: SubscriptionEntitlement) {
+  if (!entitlement.active) {
+    return 'An active Forg3 subscription is required before sending signing links.';
+  }
+
+  return null;
+}
+
+function requireSigningLinkEntitlement(ownerEmail: string, response: Response) {
+  const entitlement = getSubscriptionEntitlement(ownerEmail);
+  const block = getSigningLinkEntitlementBlock(entitlement);
+
+  if (block) {
+    response.status(402).json({ error: block, entitlement });
+    return false;
+  }
+
+  return true;
 }
 
 function getCapabilitiesForPlan(planId?: PlanId | null, unlimitedAccess = false) {

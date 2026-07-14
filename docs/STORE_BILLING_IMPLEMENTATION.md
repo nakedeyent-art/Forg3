@@ -1,6 +1,6 @@
 # Store Billing Implementation Runbook
 
-Phase 4 is code-implemented but not store-live. The server has fail-closed Apple App Store Server API and Google Play Developer API verification paths, plus idempotent Apple/Google webhook event logging. The iOS and Android Capacitor shells now include native purchase, restore, and manage-subscription bridges. Live store entitlement still cannot be granted until store products, store credentials, and sandbox/live purchase tests are configured.
+Phase 4 is code-implemented but not store-live. The server has fail-closed Apple App Store Server API and Google Play Developer API verification paths, plus idempotent Apple/Google webhook event logging. The iOS and Android Capacitor shells now include native purchase, restore, and manage-subscription bridges. The paid Apple Developer / App Store Connect and Google Play Console accounts exist, but live store entitlement still cannot be granted until store products, server credentials, and sandbox/live purchase tests are configured.
 
 ## Official References Checked
 
@@ -57,6 +57,14 @@ Phase 4 is code-implemented but not store-live. The server has fail-closed Apple
   - Store RTDN provider event id idempotently.
   - Reconcile the existing subscription tied to the stored purchase-token hash.
 
+## Entitlement Enforcement
+
+- `POST /api/documents` requires an active entitlement before creating signer links.
+- `POST /api/documents/:id/rotate-link` requires an active entitlement before reissuing signer links.
+- `POST /api/documents/:id/remind` requires an active entitlement before emailing reminder signer links.
+- Pay Per Signature is not a free-send mode: the `$12/year` base entitlement must be active before link issuance, and completed signatures are recorded as metered usage.
+- Monthly Pro / Business plans allow link issuance while active; canceled, expired, or past-due plans do not retain capabilities.
+
 ## Native UI Requirements
 
 - StoreKit purchase and restore purchases on iOS. Implemented in `ios/App/App/Forg3BillingPlugin.swift`.
@@ -68,7 +76,7 @@ Phase 4 is code-implemented but not store-live. The server has fail-closed Apple
 
 ## Blockers
 
-- No Apple App Store Connect credentials, sandbox tester setup, or valid local provisioning profile are available in this repo/session.
-- No Google Play service account, package/product setup, license tester setup, or RTDN Pub/Sub route is available in this repo/session.
+- Apple App Store Connect exists, but the subscription products, App Store Server API key, sandbox tester setup, and valid local provisioning profile are not installed in this repo/session.
+- Google Play Console exists, but the subscription products, Play Developer API service account, license tester setup, and RTDN Pub/Sub route are not installed in this repo/session.
 - No approved per-signature mobile billing model has been selected; Pay Per Signature must stay hidden on native builds until this is resolved.
 - Apple notification JWS certificate-chain validation is not implemented; the endpoint only reconciles existing subscriptions and must not be treated as a standalone entitlement grant.

@@ -66,6 +66,22 @@ async function run() {
   const unauthenticated = await api('GET', '/api/documents');
   check('documents list rejects missing auth', unauthenticated.status === 401);
 
+  const pdfDataUrl = `data:application/pdf;base64,${buildMinimalPdfBase64()}`;
+  const unpaidCreate = await api(
+    'POST',
+    '/api/documents',
+    {
+      title: 'Unpaid Smoke Agreement',
+      fileName: 'unpaid-smoke.pdf',
+      fileType: 'application/pdf',
+      fileDataUrl: pdfDataUrl,
+      signers: [{ name: 'Smoke Signer', email: signerEmail }],
+      expiresInHours: 24
+    },
+    ownerToken
+  );
+  check('unpaid owner cannot create signing links', unpaidCreate.status === 402);
+
   // Session management (added in the hardening sprint).
   const sessions = await api('GET', '/api/auth/sessions', undefined, ownerToken);
   check('sessions list returns the active session', sessions.status === 200 && Array.isArray(sessions.body.sessions) && sessions.body.sessions.length >= 1);
@@ -80,10 +96,34 @@ async function run() {
   check('account export returns owner data', exported.status === 200 && exported.body.account?.email === ownerEmail);
 
   // Document creation is subscription gated; a demo checkout unlocks it outside production.
+  const payPerCheckout = await api('POST', '/api/subscription/checkout', { planId: 'forg3_pay_per_signature_annual', billingProvider: 'demo' }, ownerToken);
+  check('demo pay-per-signature checkout activates an entitlement outside production', payPerCheckout.status === 201 && payPerCheckout.body.entitlement?.active === true);
+
+  const payPerCreated = await api(
+    'POST',
+    '/api/documents',
+    {
+      title: 'Pay Per Signature Smoke Agreement',
+      fileName: 'payper-smoke.pdf',
+      fileType: 'application/pdf',
+      fileDataUrl: pdfDataUrl,
+      signers: [{ name: 'Smoke Signer', email: signerEmail }],
+      expiresInHours: 24
+    },
+    ownerToken
+  );
+  check('pay-per-signature plan can create a single-signer link', payPerCreated.status === 201 && createdLinkCount(payPerCreated.body) === 1);
+
+  const payPerCancel = await api('POST', '/api/subscription/cancel', {}, ownerToken);
+  check('canceling pay-per-signature removes active entitlement', payPerCancel.status === 200 && payPerCancel.body.entitlement?.active === false);
+
+  const payPerDocumentId = payPerCreated.body.document?.id || 'missing-document';
+  const inactiveRotate = await api('POST', `/api/documents/${payPerDocumentId}/rotate-link`, { expiresInHours: 24 }, ownerToken);
+  check('inactive owner cannot rotate signing links', inactiveRotate.status === 402);
+
   const checkout = await api('POST', '/api/subscription/checkout', { planId: 'forg3_business_monthly', billingProvider: 'demo' }, ownerToken);
   check('demo checkout activates a subscription outside production', checkout.status === 201 && checkout.body.entitlement?.active === true);
 
-  const pdfDataUrl = `data:application/pdf;base64,${buildMinimalPdfBase64()}`;
   const created = await api(
     'POST',
     '/api/documents',
@@ -100,9 +140,18 @@ async function run() {
   check('document creation succeeds', created.status === 201 && created.body.document?.status === 'sent');
   check('signing link is returned once', typeof created.body.signingLinks?.[0]?.signingPath === 'string');
 
+  const pausedSubscription = await api('POST', '/api/subscription/cancel', {}, ownerToken);
+  check('canceling monthly subscription removes active entitlement', pausedSubscription.status === 200 && pausedSubscription.body.entitlement?.active === false);
+
+  const documentId = created.body.document.id;
+  const inactiveReminder = await api('POST', `/api/documents/${documentId}/remind`, {}, ownerToken);
+  check('inactive owner cannot send reminder signing links', inactiveReminder.status === 402);
+
+  const reactivated = await api('POST', '/api/subscription/checkout', { planId: 'forg3_business_monthly', billingProvider: 'demo' }, ownerToken);
+  check('reactivated monthly subscription restores entitlement', reactivated.status === 201 && reactivated.body.entitlement?.active === true);
+
   // The assigned recipient must authenticate with the matching email to view.
   const signerToken = await emailLogin(signerEmail, 'Smoke Signer');
-  const documentId = created.body.document.id;
   const signerId = created.body.signingLinks[0].signerId;
   const inbox = await api('GET', '/api/signer/documents', undefined, signerToken);
   check('signer inbox lists the assigned document', inbox.status === 200 && inbox.body.documents.some((doc) => doc.id === documentId));
@@ -185,6 +234,10 @@ function check(label, condition) {
     failures.push(label);
     console.error(`FAIL - ${label}`);
   }
+}
+
+function createdLinkCount(body) {
+  return Array.isArray(body?.signingLinks) ? body.signingLinks.length : 0;
 }
 
 function report() {

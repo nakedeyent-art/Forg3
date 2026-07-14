@@ -32,11 +32,11 @@ The API runs at `http://127.0.0.1:4127` and stores local data in `data/forg3-sto
 
 ## Subscription model
 
-The app is subscription-gated. A signed-in owner must have an active entitlement before the API will create a signing link.
+The app is subscription-gated. A signed-in owner must have an active entitlement before the API will create, rotate, or email signing links.
 
-Local development includes demo subscription activation from the billing panel. Production mobile builds should replace demo checkout with StoreKit / Google Play Billing purchase flows and server-side receipt verification.
+Local development includes demo subscription activation from the billing panel. Production mobile builds use StoreKit / Google Play Billing purchase flows and server-side receipt verification.
 
-Creator accounts are configured with `FORG3_CREATOR_EMAILS` on the server. Those accounts can create and manage packets without a paid subscription. For paying customers, unlimited access is reserved for the highest tier, Forg3 Business. Pro is a capped flat tier, and Pay Per Signature remains metered per completed signature.
+Creator accounts are configured with `FORG3_CREATOR_EMAILS` on the server. Those accounts can create and manage packets without a paid subscription. For paying customers, unlimited access is reserved for the highest tier, Forg3 Business. Pro is a capped flat tier, and Pay Per Signature requires the annual base plan before any signer links can be sent, then remains metered per completed signature.
 
 The occasional-use plan charges a $12 annual base subscription plus a metered charge for each completed signature. The local default is `$0.99/signature`; change `PAY_PER_SIGNATURE_FEE_CENTS` to adjust that amount.
 
@@ -50,7 +50,7 @@ Current product IDs:
 
 Important endpoints:
 
-- `GET /api/subscription?ownerEmail=...`
+- `GET /api/subscription`
 - `POST /api/subscription/checkout` for local demo activation.
 - `POST /api/subscription/verify` reserved for StoreKit / Play Billing receipt verification.
 - `POST /api/subscription/cancel`
@@ -123,7 +123,7 @@ Set `APP_AUTH_SECRET` and `DEVICE_TRUST_SECRET` to strong server-side secrets in
 
 ## Continuous integration
 
-`.github/workflows/ci.yml` runs on every push and pull request: dependency install, app/server typechecks, full build, a 20-check backend smoke suite (`npm run smoke`) covering auth, sessions, TOTP-aware login, signing, sealing, audit chaining, and revocation, plus a high-severity dependency audit.
+`.github/workflows/ci.yml` runs on every push and pull request: dependency install, app/server typechecks, full build, a backend smoke suite (`npm run smoke`) covering auth, sessions, TOTP-aware login, subscription-gated signer-link issuance, signing, sealing, audit chaining, and revocation, plus a high-severity dependency audit.
 
 ## Mobile builds
 
@@ -172,7 +172,7 @@ CI validates all of it: the smoke suite runs against both the file store and a r
 
 These still require external services, credentials, or human steps and are intentionally not faked in code:
 
-1. **Native billing.** App Store / Play Billing receipt verification endpoints exist (`/api/subscription/verify`) but need store credentials and StoreKit/Play Billing client work. See [docs/STORE_BILLING_IMPLEMENTATION.md](docs/STORE_BILLING_IMPLEMENTATION.md).
+1. **Native billing.** App Store / Play Billing bridges and receipt verification endpoints exist, but the paid Apple/Google accounts still need store products, server credentials, sandbox testers, and purchase lifecycle tests before public release. See [docs/STORE_BILLING_IMPLEMENTATION.md](docs/STORE_BILLING_IMPLEMENTATION.md).
 2. **CA-backed PDF signatures** (PAdES) need a signing certificate/provider (`PDF_SIGNING_CERT_P12_BASE64`).
 3. **Real-device iOS/Android QA** and app-store compliance review.
 4. **Legal review** of the pilot terms/privacy text before charging outside customers.
