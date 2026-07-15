@@ -44,9 +44,9 @@ Current product IDs:
 
 | Plan | Price model | Apple product ID | Google product ID |
 | --- | --- | --- | --- |
-| Forg3 Pay Per Signature | `$12/year + usage` | `com.forg3.sign.payper.yearly` | `forg3_pay_per_signature_yearly` |
-| Forg3 Pro | `$19/month`, capped below unlimited | `com.forg3.sign.pro.monthly` | `forg3_pro_monthly` |
-| Forg3 Business | `$49/month`, highest-tier unlimited | `com.forg3.sign.business.monthly` | `forg3_business_monthly` |
+| Forg3 Pay Per Signature | `$11.99/year + $0.99/signature` | `com.forg3.sign.payper.yearly` | `forg3_pay_per_signature_yearly` |
+| Forg3 Pro | `$18.99/month`, capped below unlimited | `com.forg3.sign.pro.monthly` | `forg3_pro_monthly` |
+| Forg3 Business | `$39.99/month`, highest-tier unlimited | `com.forg3.sign.business.monthly` | `forg3_business_monthly` |
 
 Important endpoints:
 

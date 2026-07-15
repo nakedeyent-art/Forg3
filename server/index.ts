@@ -104,7 +104,7 @@ const subscriptionPlans: SubscriptionPlan[] = [
   {
     id: 'forg3_pay_per_signature_annual',
     name: 'Forg3 Pay Per Signature',
-    priceLabel: '$12',
+    priceLabel: '$11.99',
     cadence: 'year',
     billingModel: 'metered',
     packetLimit: null,
@@ -114,9 +114,9 @@ const subscriptionPlans: SubscriptionPlan[] = [
     googleProductId: 'forg3_pay_per_signature_yearly',
     usagePriceCents: payPerSignatureFeeCents,
     usagePriceLabel: `${formatCents(payPerSignatureFeeCents)}/signature`,
-    billingNote: '$12 yearly base plus a charge for each completed signature.',
+    billingNote: '$11.99 yearly base plus a charge for each completed signature.',
     features: [
-      '$12 paid yearly',
+      '$11.99 paid yearly',
       `${formatCents(payPerSignatureFeeCents)} per completed signature`,
       'Automatic signing-link email outbox',
       'Metered access for occasional packet sending'
@@ -125,7 +125,7 @@ const subscriptionPlans: SubscriptionPlan[] = [
   {
     id: 'forg3_pro_monthly',
     name: 'Forg3 Pro',
-    priceLabel: '$19',
+    priceLabel: '$18.99',
     cadence: 'month',
     billingModel: 'flat',
     packetLimit: 50,
@@ -144,7 +144,7 @@ const subscriptionPlans: SubscriptionPlan[] = [
   {
     id: 'forg3_business_monthly',
     name: 'Forg3 Business',
-    priceLabel: '$49',
+    priceLabel: '$39.99',
     cadence: 'month',
     billingModel: 'flat',
     packetLimit: null,
@@ -1752,12 +1752,25 @@ async function completeSignerSignature(
       documentId: document.id,
       signerId: signer.id
     });
+    const deliveries = await createOwnerSignedDeliveries({
+      request,
+      ownerEmail: document.ownerEmail,
+      ownerName: document.ownerName,
+      documentId: document.id,
+      signerId: signer.id,
+      signerName: signer.name,
+      signerEmail: signer.email,
+      documentTitle: document.title,
+      signedAt,
+      signedDocumentHash
+    });
 
     response.json({
       document: toSummary(finalDocument!),
       fileName: signedFileName(document.fileName),
       signedFileDataUrl,
-      signedDocumentHash
+      signedDocumentHash,
+      deliveries
     });
   } catch (error) {
     next(error);
@@ -2183,6 +2196,50 @@ async function createDeliveryRecord(input: {
     providerMessageId: providerResult.providerMessageId,
     error: providerResult.error
   });
+}
+
+async function createOwnerSignedDeliveries(input: {
+  request: Request;
+  ownerEmail: string;
+  ownerName?: string;
+  documentId: string;
+  signerId?: string;
+  signerName: string;
+  signerEmail: string;
+  documentTitle: string;
+  signedAt: string;
+  signedDocumentHash: string;
+}) {
+  const dashboardUrl = getPublicSigningBaseUrl(input.request);
+  const ownerName = sanitizeEnvValue(input.ownerName || input.ownerEmail, 120);
+  const subject = `${input.documentTitle} has been signed`;
+  const body = [
+    `Hello ${ownerName},`,
+    '',
+    `${input.signerName} <${input.signerEmail}> signed "${input.documentTitle}".`,
+    `Signed at: ${input.signedAt}`,
+    `Signed document hash: ${input.signedDocumentHash}`,
+    '',
+    `Open Forg3 to download the sealed PDF: ${dashboardUrl}`,
+    '',
+    'Forg3'
+  ].join('\n');
+
+  return [
+    await createDeliveryRecord({
+      ownerEmail: input.ownerEmail,
+      ownerName: input.ownerName,
+      documentId: input.documentId,
+      signerId: input.signerId,
+      senderEmail: input.ownerEmail,
+      toEmail: input.ownerEmail,
+      toName: ownerName,
+      channel: 'email',
+      kind: 'signed_copy',
+      subject,
+      body
+    })
+  ];
 }
 
 function redactSigningUrlFromBody(body: string, signingUrl?: string) {

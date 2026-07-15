@@ -10,11 +10,11 @@ No customer can send signature requests without an active entitlement. The backe
 
 | Plan | Price label | Apple product ID | Google product ID |
 | --- | --- | --- | --- |
-| Forg3 Pay Per Signature | `$12/year + metered signature fee` | `com.forg3.sign.payper.yearly` | `forg3_pay_per_signature_yearly` |
-| Forg3 Pro | `$19/month` | `com.forg3.sign.pro.monthly` | `forg3_pro_monthly` |
-| Forg3 Business | `$49/month` | `com.forg3.sign.business.monthly` | `forg3_business_monthly` |
+| Forg3 Pay Per Signature | `$11.99/year + $0.99/signature` | `com.forg3.sign.payper.yearly` | `forg3_pay_per_signature_yearly` |
+| Forg3 Pro | `$18.99/month` | `com.forg3.sign.pro.monthly` | `forg3_pro_monthly` |
+| Forg3 Business | `$39.99/month` | `com.forg3.sign.business.monthly` | `forg3_business_monthly` |
 
-The local default metered fee is `$0.99` per completed signature. Set `PAY_PER_SIGNATURE_FEE_CENTS` to change the usage fee without changing code. Pay Per Signature still requires the `$12/year` base subscription before any signing link can be created or emailed.
+The local default metered fee is `$0.99` per completed signature. Set `PAY_PER_SIGNATURE_FEE_CENTS` to change the usage fee without changing code. Pay Per Signature still requires the `$11.99/year` base subscription before any signing link can be created or emailed.
 
 Mobile launch note: native iOS/Android builds currently show Pro and Business only. Pay Per Signature remains available to the web/server model, but it is intentionally hidden in native store runtime until the per-signature fee is packaged as store-managed consumable credits, prepaid entitlement, or another policy-approved billing path.
 

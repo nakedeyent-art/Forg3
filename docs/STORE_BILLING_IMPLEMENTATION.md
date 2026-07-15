@@ -62,7 +62,7 @@ Phase 4 is code-implemented but not store-live. The server has fail-closed Apple
 - `POST /api/documents` requires an active entitlement before creating signer links.
 - `POST /api/documents/:id/rotate-link` requires an active entitlement before reissuing signer links.
 - `POST /api/documents/:id/remind` requires an active entitlement before emailing reminder signer links.
-- Pay Per Signature is not a free-send mode: the `$12/year` base entitlement must be active before link issuance, and completed signatures are recorded as metered usage.
+- Pay Per Signature is not a free-send mode: the `$11.99/year` base entitlement must be active before link issuance, and completed signatures are recorded as `$0.99/signature` metered usage by default.
 - Monthly Pro / Business plans allow link issuance while active; canceled, expired, or past-due plans do not retain capabilities.
 
 ## Native UI Requirements
