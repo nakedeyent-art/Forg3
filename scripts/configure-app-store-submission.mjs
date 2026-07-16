@@ -155,14 +155,17 @@ async function updateReviewDetail(reviewDetailId, contact) {
 }
 
 function reviewDetailAttributes({ contactFirstName, contactLastName, contactPhone, contactEmail }) {
+  const demoAccountName = env.APP_STORE_REVIEW_DEMO_ACCOUNT || env.FORG3_REVIEW_ACCESS_EMAIL || '';
+  const demoAccountPassword = env.APP_STORE_REVIEW_DEMO_PASSWORD || env.FORG3_REVIEW_ACCESS_CODE || '';
+
   return {
     contactFirstName,
     contactLastName,
     contactPhone,
     contactEmail,
-    demoAccountName: env.APP_STORE_REVIEW_DEMO_ACCOUNT || '',
-    demoAccountPassword: env.APP_STORE_REVIEW_DEMO_PASSWORD || '',
-    demoAccountRequired: false,
+    demoAccountName,
+    demoAccountPassword,
+    demoAccountRequired: Boolean(demoAccountName || demoAccountPassword),
     notes: appReviewNotes()
   };
 }
