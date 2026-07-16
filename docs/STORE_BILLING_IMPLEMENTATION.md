@@ -1,6 +1,6 @@
 # Store Billing Implementation Runbook
 
-Phase 4 is code-implemented but not store-live. The server has fail-closed Apple App Store Server API and Google Play Developer API verification paths, plus idempotent Apple/Google webhook event logging. Apple client-supplied StoreKit payloads are not trusted as the entitlement source; the server uses them only to identify the transaction, then verifies through Apple's App Store Server API before granting access. The iOS and Android Capacitor shells include native purchase, restore, and manage-subscription bridges. The paid Apple Developer / App Store Connect and Google Play Console accounts exist, but live store entitlement still cannot be granted until store products, server credentials, and sandbox/live purchase tests are configured.
+Phase 4 is code-implemented and store-product configured, but not sandbox-purchase proven. The server has fail-closed Apple App Store Server API and Google Play Developer API verification paths, plus idempotent Apple/Google webhook event logging. Apple client-supplied StoreKit payloads are not trusted as the entitlement source; the server uses them only to identify the transaction, then verifies through Apple's server API before granting access. The iOS and Android Capacitor shells include native purchase, restore, and manage-subscription bridges. Apple launch products are configured and ready to submit with the app version; Google Play launch products are active. Live entitlement still needs sandbox purchase/restore/webhook tests plus final store review submission.
 
 ## Official References Checked
 
@@ -28,7 +28,7 @@ Phase 4 is code-implemented but not store-live. The server has fail-closed Apple
 
 - `APPLE_APP_STORE_ISSUER_ID`
 - `APPLE_APP_STORE_KEY_ID`
-- `APPLE_APP_STORE_PRIVATE_KEY` or `APPLE_APP_STORE_PRIVATE_KEY_BASE64`
+- `APPLE_APP_STORE_PRIVATE_KEY`, `APPLE_APP_STORE_PRIVATE_KEY_BASE64`, `APPLE_APP_STORE_PRIVATE_KEY_FILE`, or `APPLE_APP_STORE_PRIVATE_KEY_PATH`
 - `APPLE_APP_STORE_BUNDLE_ID` (defaults to `com.forg3.sign`)
 - `APPLE_APP_STORE_ENVIRONMENT` (`sandbox` or `production`)
 - `GOOGLE_PLAY_PACKAGE_NAME` (defaults to `com.forg3.sign`)
@@ -77,7 +77,7 @@ Phase 4 is code-implemented but not store-live. The server has fail-closed Apple
 
 ## Blockers
 
-- Apple App Store Connect exists, but the subscription products, App Store Server API key, sandbox tester setup, and valid local provisioning profile are not installed in this repo/session.
-- Google Play Console exists, but the subscription products, Play Developer API service account, license tester setup, and RTDN Pub/Sub route are not installed in this repo/session.
+- Apple App Store Connect exists, paid agreements/bank/tax/compliance are active, app `Forg3` exists for bundle `com.forg3.sign`, build `3` is `VALID` and attached to version `1.0`, the App Store Server API key is installed locally, and the age-rating answers are configured. `com.forg3.sign.pro.monthly` and `com.forg3.sign.business.monthly` are `READY_TO_SUBMIT` with 175 territory prices and review screenshots. Remaining Apple blockers are App Review contact first/last name and phone, export-compliance answer, first-subscription submission with the app version, sandbox testers, production env injection, and sandbox purchase/restore/webhook tests.
+- Google Play Console exists and app `Forg3` is registered as package `com.forg3.sign` in draft/internal testing. RTDN Pub/Sub topic/push route/token are configured locally. The Firebase service account has Forg3 app-scoped permissions, `forg3_pro_monthly/monthly` plus `forg3_business_monthly/monthly` are active, Android versionCode `2` is uploaded to the internal testing track, and selected tester list `Forg3 Internal Testers` contains 1 user. The connected Pixel's active Google account is not invited yet. Remaining Google blockers are payments profile bank verification, tester account correction/opt-in/install confirmation, app-content/store-listing final answers, production env injection, and sandbox purchase/restore/webhook tests.
 - No approved per-signature mobile billing model has been selected; Pay Per Signature must stay hidden on native builds until this is resolved.
 - Apple notification JWS signatures and certificate chains are validated before reconciliation, but sandbox/live notification delivery still needs to be tested from App Store Connect.

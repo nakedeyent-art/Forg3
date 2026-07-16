@@ -2,6 +2,14 @@
 
 _Date: 2026-07-11 · Scope: product, frontend, backend, mobile readiness, security · Verdict: **NO-GO for production**_
 
+> Status update, 2026-07-15: this is a historical audit snapshot. The critical
+> auth, owner-scoping, signed-artifact, persistence, encryption, and store receipt
+> verification blockers called out below have since been remediated in the active
+> codebase and smoke/release-readiness checks. Use
+> `docs/DEPLOYMENT_READINESS_AUDIT_2026-07-15.md`,
+> `docs/STORE_BILLING_IMPLEMENTATION.md`, and `docs/CODEX_HANDOFF.md` for current
+> launch blockers.
+
 ## 1. Executive Summary
 
 Forg3 Sign is a well-structured prototype with a clean React/Vite frontend, a small
@@ -161,7 +169,8 @@ Proposed target:
   DB constraint), `signing_tokens` (hash, expiry, one-time), `audit_events`.
 - **Blob storage:** encrypted object store (S3+SSE/KMS) for original and signed PDFs;
   DB holds only keys + hashes.
-- **Billing/receipts:** implement the stubbed `/api/subscription/verify` (`:142`) for
+- **Billing/receipts:** implement `/api/subscription/verify` (historical route
+  reference `:142`) for
   Apple App Store Server API and Google Play Developer API; grant entitlement only
   after server-side verification. Add webhook/notification handlers for renewals,
   cancellations, refunds, grace periods, and account holds (Apple App Store Server

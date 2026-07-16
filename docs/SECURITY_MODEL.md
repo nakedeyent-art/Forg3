@@ -17,6 +17,7 @@
 - Trusted devices are stored by device-id hash with an expiration window.
 - MFA challenge codes are stored as hashes, expire quickly, and lock after repeated failed attempts.
 - Recipient document access requires `req.owner.email` to match the assigned signer email.
+- Recipients may keep free Forg3 accounts. Their own subscription entitlement is not required to open or sign assigned packets; paid entitlement is required only when an account creates or resends signing requests.
 
 ## Data retained
 
@@ -58,8 +59,8 @@ The local store does not intentionally capture:
 - The backend owns subscription state and rejects signing-link creation when entitlement is inactive.
 - The pay-per-signature plan records a usage charge only after a signing link is completed and sealed.
 - The local app supports `demo` billing so the product can be tested without store credentials.
-- `/api/subscription/verify` is intentionally stubbed until native receipt verification is implemented.
-- Production must verify StoreKit and Google Play Billing receipts server-side before granting entitlement.
+- `/api/subscription/verify` verifies native StoreKit and Google Play Billing purchases server-side before granting entitlement.
+- Production must keep store verification credentials configured and fail closed when they are missing.
 - Production must make usage charge recording idempotent in the database and reconcile it with store billing events.
 
 ## Phase 10-11 hardening layer (implemented)
@@ -71,4 +72,4 @@ The local store does not intentionally capture:
 - **Abuse protection**: strict rate limits and per-account+device resend cooldowns on all login/2FA code endpoints.
 - **Encryption at rest**: uploaded and sealed PDFs are AES-256-GCM encrypted when `FORG3_OBJECT_ENCRYPTION_KEY` is set; production refuses to start without it unless explicitly overridden.
 - **Data subject controls**: full JSON export (`/api/account/export`) and confirmed irreversible deletion (`/api/account/delete`) including stored PDF objects.
-- **CI enforcement**: the smoke suite asserts recipient-email matching, revocation, and audit chain integrity on every push.
+- **CI enforcement**: the smoke suite asserts recipient-email matching, free-recipient signing, revocation, and audit chain integrity on every push.

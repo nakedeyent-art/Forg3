@@ -870,6 +870,18 @@ input:focus {
   min-height: 420px;
 }
 
+.recipient-inbox-table .table-heading > div {
+  min-width: 0;
+}
+
+.recipient-inbox-table .table-heading h1 {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  font-size: 1rem;
+  line-height: 1.18;
+}
+
 .feature-suite-panel {
   padding: 18px;
   border: 1px solid #dce5e8;
@@ -1426,6 +1438,15 @@ input:focus {
 
   .document-row {
     grid-template-columns: 1fr;
+  }
+
+  .recipient-inbox-table .table-heading {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .recipient-inbox-table .table-heading .secondary-button {
+    width: 100%;
   }
 
   .status-chip {

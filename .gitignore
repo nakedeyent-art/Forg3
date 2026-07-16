@@ -4,6 +4,7 @@ dist-server/
 data/
 .env
 .env.local
+.env.production.local
 .DS_Store
 *.log
 coverage/

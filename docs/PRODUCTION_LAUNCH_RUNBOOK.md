@@ -75,7 +75,7 @@ npm run monitor:production
 npm run verify:release-readiness
 ```
 
-`verify:release-readiness` intentionally fails until production store billing, database, encryption, email, and webhook secrets are present in `.env.production`, `.env.local`, or the process environment.
+`verify:release-readiness` passes only when production store billing, database, encryption, email, webhook, public health, mobile assets, and Google Play product checks are satisfied. For local verification, keep private launch values in ignored `.env.production.local`, `.env.production`, `.env.local`, or the process environment; never commit those values.
 
 ## Backup And Restore
 

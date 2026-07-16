@@ -165,7 +165,7 @@ async function verifyAppleReceipt(input: StoreBillingVerificationInput): Promise
       verified: false,
       error: 'Apple App Store Server API credentials are not configured.',
       requiredNextStep:
-        'Set APPLE_APP_STORE_ISSUER_ID, APPLE_APP_STORE_KEY_ID, APPLE_APP_STORE_PRIVATE_KEY, and APPLE_APP_STORE_BUNDLE_ID.'
+        'Set APPLE_APP_STORE_ISSUER_ID, APPLE_APP_STORE_KEY_ID, APPLE_APP_STORE_PRIVATE_KEY or APPLE_APP_STORE_PRIVATE_KEY_FILE, and APPLE_APP_STORE_BUNDLE_ID.'
     };
   }
 
@@ -493,11 +493,13 @@ function base64Url(value: Buffer) {
 }
 
 function readApplePrivateKey() {
-  const raw =
+  const inline =
     process.env.APPLE_APP_STORE_PRIVATE_KEY ||
     (process.env.APPLE_APP_STORE_PRIVATE_KEY_BASE64
       ? Buffer.from(process.env.APPLE_APP_STORE_PRIVATE_KEY_BASE64, 'base64').toString('utf8')
       : '');
+  const filePath = process.env.APPLE_APP_STORE_PRIVATE_KEY_FILE || process.env.APPLE_APP_STORE_PRIVATE_KEY_PATH || '';
+  const raw = inline || (filePath && fs.existsSync(filePath) ? fs.readFileSync(filePath, 'utf8') : '');
 
   return raw ? raw.replace(/\\n/g, '\n') : '';
 }

@@ -42,6 +42,7 @@ Recommended:
 | `DATABASE_SSL` | auto | `disable` for same-network Postgres, `no-verify` for managed Postgres with self-signed chains |
 | `CORS_ORIGINS` | none | Extra allowed origins (only needed if the web client is hosted on a different origin) |
 | `FORG3_CREATOR_EMAILS` | none | Comma-separated accounts with creator unlimited access |
+| `FORG3_REVIEW_ACCESS_EMAIL` / `FORG3_REVIEW_ACCESS_CODE` | none | Optional Apple/Google review account and reusable six-digit code; pair the email with `FORG3_CREATOR_EMAILS` so reviewers can test paid sender flows without a purchase |
 | `FORG3_AUTH_CODE_LIMIT` / `FORG3_AUTH_VERIFY_LIMIT` / `FORG3_CODE_RESEND_COOLDOWN_SECONDS` | 10 / 40 / 30 | Login-code abuse protection |
 
 Native billing:

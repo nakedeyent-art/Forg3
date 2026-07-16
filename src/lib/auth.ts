@@ -1,9 +1,19 @@
+import { Capacitor } from '@capacitor/core';
 import type { AuthProvider, AuthSession } from './types';
 
 const sessionKey = 'forg3.auth.session.v1';
 const deviceKey = 'forg3.auth.device.v1';
 const apiBase = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/$/, '');
 const tokenRefreshWindowMs = 5 * 60 * 1000;
+interface FirebaseClientConfig {
+  apiKey: string;
+  authDomain: string;
+  projectId: string;
+  appId: string;
+}
+
+let cachedFirebaseConfig: FirebaseClientConfig | null = getBundledFirebaseConfig();
+let remoteFirebaseConfigPromise: Promise<FirebaseClientConfig | null> | null = null;
 
 function readStorage(key: string) {
   try {
@@ -102,12 +112,11 @@ export function getDeviceName() {
 }
 
 export function firebaseConfigured() {
-  return Boolean(
-    import.meta.env.VITE_FIREBASE_API_KEY &&
-      import.meta.env.VITE_FIREBASE_AUTH_DOMAIN &&
-      import.meta.env.VITE_FIREBASE_PROJECT_ID &&
-      import.meta.env.VITE_FIREBASE_APP_ID
-  );
+  return Boolean(cachedFirebaseConfig || getBundledFirebaseConfig());
+}
+
+export async function loadFirebaseConfiguration() {
+  return Boolean(await getFirebaseClientConfig());
 }
 
 export async function getAuthToken() {
@@ -121,7 +130,7 @@ export async function getAuthToken() {
     return session.idToken;
   }
 
-  if (session.mode === 'firebase' && firebaseConfigured()) {
+  if (session.mode === 'firebase' && (await getFirebaseClientConfig())) {
     const auth = await getFirebaseAuth();
     const user = auth.currentUser || (await waitForFirebaseUser(auth));
 
@@ -157,28 +166,21 @@ export async function getAuthToken() {
 }
 
 export async function signIn(provider: 'google' | 'apple'): Promise<AuthSession> {
-  if (firebaseConfigured()) {
+  if (await getFirebaseClientConfig()) {
     const auth = await getFirebaseAuth();
     const authModule = await import('firebase/auth');
     const authProvider =
       provider === 'google'
         ? new authModule.GoogleAuthProvider()
         : new authModule.OAuthProvider('apple.com');
+
+    if (usesRedirectAuth()) {
+      await authModule.signInWithRedirect(auth, authProvider);
+      throw new Error('Complete sign-in in the secure browser and return to Forg3.');
+    }
+
     const credential = await authModule.signInWithPopup(auth, authProvider);
-    const user = credential.user;
-    const idToken = await user.getIdToken();
-    const tokenResult = await user.getIdTokenResult();
-    const session: AuthSession = {
-      provider,
-      mode: 'firebase',
-      uid: user.uid,
-      name: user.displayName || user.email || `${provider} user`,
-      email: user.email || '',
-      idToken,
-      expiresAt: new Date(tokenResult.expirationTime).getTime()
-    };
-    writeStorage(sessionKey, JSON.stringify(session));
-    return session;
+    return writeFirebaseSession(provider, credential.user);
   }
 
   if (!import.meta.env.DEV) {
@@ -188,6 +190,24 @@ export async function signIn(provider: 'google' | 'apple'): Promise<AuthSession>
   const session = await createDevSession(provider);
   writeStorage(sessionKey, JSON.stringify(session));
   return session;
+}
+
+export async function finishPendingProviderSignIn(): Promise<AuthSession | null> {
+  if (!(await getFirebaseClientConfig())) {
+    return null;
+  }
+
+  const auth = await getFirebaseAuth();
+  const authModule = await import('firebase/auth');
+  const credential = await authModule.getRedirectResult(auth).catch(() => null);
+  const user = credential?.user || auth.currentUser;
+
+  if (!user) {
+    return null;
+  }
+
+  const provider = resolveFirebaseProvider(credential?.providerId || user.providerData[0]?.providerId);
+  return writeFirebaseSession(provider, user);
 }
 
 export async function startEmailSignIn(email: string, name?: string): Promise<EmailSignInStart> {
@@ -253,16 +273,118 @@ async function getFirebaseAuth() {
     import('firebase/app'),
     import('firebase/auth')
   ]);
+  const config = await getFirebaseClientConfig();
+
+  if (!config) {
+    throw new Error('Firebase authentication is not configured.');
+  }
+
   const app =
     getApps()[0] ||
-    initializeApp({
-      apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
-      authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
-      projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
-      appId: import.meta.env.VITE_FIREBASE_APP_ID
-    });
+    initializeApp(config);
 
   return authModule.getAuth(app);
+}
+
+async function getFirebaseClientConfig(): Promise<FirebaseClientConfig | null> {
+  const bundled = getBundledFirebaseConfig();
+
+  if (bundled) {
+    cachedFirebaseConfig = bundled;
+    return bundled;
+  }
+
+  if (cachedFirebaseConfig) {
+    return cachedFirebaseConfig;
+  }
+
+  if (!remoteFirebaseConfigPromise) {
+    remoteFirebaseConfigPromise = fetchFirebaseClientConfig();
+  }
+
+  const remoteConfig = await remoteFirebaseConfigPromise;
+  if (!remoteConfig) {
+    remoteFirebaseConfigPromise = null;
+    return null;
+  }
+
+  cachedFirebaseConfig = remoteConfig;
+  return cachedFirebaseConfig;
+}
+
+function getBundledFirebaseConfig(): FirebaseClientConfig | null {
+  const config = {
+    apiKey: import.meta.env.VITE_FIREBASE_API_KEY || '',
+    authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || '',
+    projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || '',
+    appId: import.meta.env.VITE_FIREBASE_APP_ID || ''
+  };
+
+  return config.apiKey && config.authDomain && config.projectId && config.appId ? config : null;
+}
+
+async function fetchFirebaseClientConfig(): Promise<FirebaseClientConfig | null> {
+  try {
+    const response = await fetch(`${apiBase}/api/auth/firebase-config`, {
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Forg3-Device-Id': getDeviceId(),
+        'X-Forg3-Device-Name': getDeviceName()
+      }
+    });
+    const payload = (await response.json().catch(() => ({}))) as {
+      configured?: boolean;
+      firebase?: Partial<FirebaseClientConfig> | null;
+    };
+    const firebase = payload.firebase;
+
+    if (
+      response.ok &&
+      payload.configured &&
+      firebase?.apiKey &&
+      firebase.authDomain &&
+      firebase.projectId &&
+      firebase.appId
+    ) {
+      return {
+        apiKey: firebase.apiKey,
+        authDomain: firebase.authDomain,
+        projectId: firebase.projectId,
+        appId: firebase.appId
+      };
+    }
+  } catch {
+    // Email-code login remains available when provider auth has not been configured yet.
+  }
+
+  return null;
+}
+
+function usesRedirectAuth() {
+  return Capacitor.isNativePlatform() || /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+}
+
+function resolveFirebaseProvider(providerId?: string | null): 'google' | 'apple' {
+  return providerId === 'apple.com' ? 'apple' : 'google';
+}
+
+async function writeFirebaseSession(
+  provider: 'google' | 'apple',
+  user: import('firebase/auth').User
+): Promise<AuthSession> {
+  const idToken = await user.getIdToken();
+  const tokenResult = await user.getIdTokenResult();
+  const session: AuthSession = {
+    provider,
+    mode: 'firebase',
+    uid: user.uid,
+    name: user.displayName || user.email || `${provider} user`,
+    email: user.email || '',
+    idToken,
+    expiresAt: new Date(tokenResult.expirationTime).getTime()
+  };
+  writeStorage(sessionKey, JSON.stringify(session));
+  return session;
 }
 
 async function waitForFirebaseUser(auth: Awaited<ReturnType<typeof getFirebaseAuth>>) {

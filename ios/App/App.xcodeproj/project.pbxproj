@@ -178,7 +178,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "if [ -n \"${TARGET_BUILD_DIR:-}\" ] && [ -n \"${FULL_PRODUCT_NAME:-}\" ]; then\n  xattr -cr \"${TARGET_BUILD_DIR}/${FULL_PRODUCT_NAME}\" 2>/dev/null || true\nfi\n";
+			shellScript = "strip_forg3_attrs() {\n  local target=\"$1\"\n  [ -e \"$target\" ] || return 0\n  xattr -cr \"$target\" 2>/dev/null || true\n}\n\nif [ -n \"${TARGET_BUILD_DIR:-}\" ] && [ -n \"${FULL_PRODUCT_NAME:-}\" ]; then\n  strip_forg3_attrs \"${TARGET_BUILD_DIR}/${FULL_PRODUCT_NAME}\"\nfi\n";
 			showEnvVarsInLog = 0;
 		};
 		504EC31C1FED79650016851F /* Forg3 Strip Built Framework Attributes */ = {
@@ -193,7 +193,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "for framework in \"${BUILT_PRODUCTS_DIR}\"/*/*.framework; do\n  if [ -e \"$framework\" ]; then\n    xattr -cr \"$framework\" 2>/dev/null || true\n  fi\ndone\n";
+			shellScript = "strip_forg3_attrs() {\n  local target=\"$1\"\n  [ -e \"$target\" ] || return 0\n  xattr -cr \"$target\" 2>/dev/null || true\n}\n\nfor framework in \"${BUILT_PRODUCTS_DIR}\"/*/*.framework; do\n  strip_forg3_attrs \"$framework\"\ndone\n";
 			showEnvVarsInLog = 0;
 		};
 		6634F4EFEBD30273BCE97C65 /* [CP] Check Pods Manifest.lock */ = {

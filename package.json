@@ -16,6 +16,12 @@
     "verify:mobile-release": "node scripts/verify-mobile-release-assets.mjs",
     "verify:release-readiness": "node scripts/release-readiness.mjs",
     "build:mobile:release": "node scripts/build-mobile-release.mjs",
+    "store:screenshots": "npm run build && node scripts/generate-store-screenshots.mjs",
+    "appstore:screenshots": "node scripts/upload-app-store-screenshots.mjs",
+    "appstore:products": "node scripts/configure-app-store-products.mjs",
+    "appstore:submission": "node scripts/configure-app-store-submission.mjs",
+    "play:products": "node scripts/configure-google-play-products.mjs",
+    "play:internal": "node scripts/upload-google-play-internal.mjs",
     "cap:sync": "npm run build && cap sync",
     "ios:open": "npm run cap:sync && cap open ios",
     "android:open": "npm run cap:sync && cap open android"
@@ -47,6 +53,7 @@
     "@types/react-dom": "^18.3.5",
     "@vitejs/plugin-react": "^4.3.4",
     "concurrently": "^9.1.2",
+    "playwright": "^1.61.1",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2",
     "vite": "^6.0.5"

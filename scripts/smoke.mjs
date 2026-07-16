@@ -13,6 +13,8 @@ const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'forg3-smoke-'));
 const deviceId = crypto.randomUUID();
 const ownerEmail = 'smoke-owner@forg3.test';
 const signerEmail = 'smoke-signer@forg3.test';
+const reviewEmail = 'store-review@forg3.test';
+const reviewCode = '246810';
 
 const serverEntry = fs.existsSync(path.resolve('dist-server/server/index.js'))
   ? ['dist-server/server/index.js']
@@ -26,6 +28,9 @@ const server = spawn(process.execPath, serverEntry, {
     FORG3_DATA_FILE: path.join(dataDir, 'store.json'),
     FORG3_OBJECT_STORE_PATH: path.join(dataDir, 'objects'),
     FORG3_DEVICE_2FA: 'false',
+    FORG3_CREATOR_EMAILS: reviewEmail,
+    FORG3_REVIEW_ACCESS_EMAIL: reviewEmail,
+    FORG3_REVIEW_ACCESS_CODE: reviewCode,
     EMAIL_PROVIDER: '',
     APP_AUTH_SECRET: 'smoke-test-secret'
   },
@@ -59,6 +64,18 @@ async function run() {
   // Email-code login for the sender/owner.
   const ownerToken = await emailLogin(ownerEmail, 'Smoke Owner');
   check('email login issues a bearer token', Boolean(ownerToken));
+
+  const reviewStart = await api('POST', '/api/auth/email/start', { email: reviewEmail, name: 'Store Review' });
+  check('review access starts without inbox delivery', reviewStart.status === 201 && reviewStart.body.deliveryProvider === 'review_access');
+  const reviewVerify = await api('POST', '/api/auth/email/verify', {
+    email: reviewEmail,
+    name: 'Store Review',
+    challengeId: reviewStart.body.challengeId,
+    code: reviewCode
+  });
+  check('review access reusable code issues a bearer token', reviewVerify.status === 200 && Boolean(reviewVerify.body.token));
+  const reviewSubscription = await api('GET', '/api/subscription', undefined, reviewVerify.body.token);
+  check('review access account has creator sender entitlement', reviewSubscription.status === 200 && reviewSubscription.body.entitlement?.creatorAccess === true);
 
   const documentsBefore = await api('GET', '/api/documents', undefined, ownerToken);
   check('documents list requires and accepts auth', documentsBefore.status === 200 && Array.isArray(documentsBefore.body.documents));
@@ -152,6 +169,9 @@ async function run() {
 
   // The assigned recipient must authenticate with the matching email to view.
   const signerToken = await emailLogin(signerEmail, 'Smoke Signer');
+  const signerSubscription = await api('GET', '/api/subscription', undefined, signerToken);
+  check('free signer account has no active sender entitlement', signerSubscription.status === 200 && signerSubscription.body.entitlement?.active === false);
+
   const signerId = created.body.signingLinks[0].signerId;
   const inbox = await api('GET', '/api/signer/documents', undefined, signerToken);
   check('signer inbox lists the assigned document', inbox.status === 200 && inbox.body.documents.some((doc) => doc.id === documentId));

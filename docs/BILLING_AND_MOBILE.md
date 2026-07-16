@@ -20,12 +20,12 @@ Mobile launch note: native iOS/Android builds currently show Pro and Business on
 
 ## Current Implementation
 
-- The API stores account subscription records in `data/forg3-store.json`.
+- The API stores account subscription records through `DocumentStore`; local dev uses `data/forg3-store.json`, while staging/production can use the Postgres-backed store.
 - `POST /api/subscription/checkout` activates a local demo subscription.
 - `POST /api/documents` rejects link creation with `402` when entitlement is inactive.
 - `POST /api/documents/:id/rotate-link` and `POST /api/documents/:id/remind` also reject link issuance with `402` when entitlement is inactive.
 - Completed signatures under the pay-per-signature plan create local usage charge records.
-- `POST /api/subscription/verify` is reserved for production receipt verification.
+- `POST /api/subscription/verify` verifies Apple App Store Server API transactions and Google Play Developer API purchase tokens before granting entitlement.
 - iOS and Android Capacitor shells already exist under `ios/` and `android/`.
 - `src/lib/nativeBilling.ts` calls the native `Forg3Billing` plugin for purchase, restore, and manage-subscription actions.
 - iOS implements the bridge in `ios/App/App/Forg3BillingPlugin.swift` with StoreKit 2.
@@ -38,7 +38,7 @@ Mobile launch note: native iOS/Android builds currently show Pro and Business on
 1. In App Store Connect, create an auto-renewable subscription group from the paid developer account.
 2. Add `com.forg3.sign.pro.monthly` and `com.forg3.sign.business.monthly` as subscription products for the first mobile launch.
 3. Enable in-app purchases for bundle id `com.forg3.sign` and make sure the signing profile covers the capability.
-4. Configure `APPLE_APP_STORE_ISSUER_ID`, `APPLE_APP_STORE_KEY_ID`, and `APPLE_APP_STORE_PRIVATE_KEY` on the server.
+4. Configure `APPLE_APP_STORE_ISSUER_ID`, `APPLE_APP_STORE_KEY_ID`, and one private-key source (`APPLE_APP_STORE_PRIVATE_KEY`, `APPLE_APP_STORE_PRIVATE_KEY_BASE64`, `APPLE_APP_STORE_PRIVATE_KEY_FILE`, or `APPLE_APP_STORE_PRIVATE_KEY_PATH`) on the server.
 5. Send signed transaction data from the native StoreKit bridge to `POST /api/subscription/verify`.
 6. Verify the transaction server-side with Apple App Store Server APIs.
 7. Store the active entitlement only after server verification passes.
@@ -77,8 +77,8 @@ Google references:
 ## Build Commands
 
 ```bash
-npm run build
-npx cap sync
+npm run build:mobile:release
+npm run verify:mobile-release
 npm run ios:open
 npm run android:open
 ```

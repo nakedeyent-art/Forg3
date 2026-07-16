@@ -3,6 +3,11 @@
 _Companion to [AUDIT_REPORT.md](AUDIT_REPORT.md). This document tells a fresh Claude
 session exactly what to build, in what order, and how to prove each step works._
 
+> Status update, 2026-07-15: this is a historical remediation plan. Its core
+> implementation items are superseded by the current codebase and
+> `docs/DEPLOYMENT_READINESS_AUDIT_2026-07-15.md`. Do not treat line-numbered
+> references in this file as current blockers without re-verifying against source.
+
 ## How to use this document
 
 - Work **phase by phase, top to bottom.** Phases are ordered by dependency — do not
@@ -164,7 +169,7 @@ Goal: entitlement comes only from server-verified store receipts; per-signature 
 store-compliant.
 
 ### 4.1 Implement `/api/subscription/verify`
-- File: `server/index.ts:142` (currently stubbed `501`).
+- Historical target: `server/index.ts:142` formerly returned `501`.
 - Do: verify Apple App Store Server API receipts and Google Play Developer API purchase
   tokens server-side; upsert an active subscription only after verification passes.
   Store the provider transaction/event id.

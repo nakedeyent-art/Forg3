@@ -22,6 +22,22 @@ end
 post_install do |installer|
   assertDeploymentTarget(installer)
 
+  strip_attrs_script = <<-'SCRIPT'
+strip_forg3_attrs() {
+  local target="$1"
+  [ -e "$target" ] || return 0
+  for attr in \
+    com.apple.FinderInfo \
+    com.apple.ResourceFork \
+    'com.apple.fileprovider.fpfs#P' \
+    'com.apple.fileprovider.dir#N' \
+    com.apple.quarantine
+  do
+    xattr -d "$attr" "$target" 2>/dev/null || true
+  done
+}
+SCRIPT
+
   installer.pods_project.targets.each do |target|
     target.build_configurations.each do |config|
       config.build_settings['CODE_SIGNING_ALLOWED'] = 'NO'
@@ -30,10 +46,23 @@ post_install do |installer|
     next if target.shell_script_build_phases.any? { |phase| phase.name == 'Forg3 Strip Extended Attributes' }
 
     phase = target.new_shell_script_build_phase('Forg3 Strip Extended Attributes')
-    phase.shell_script = <<-'SCRIPT'
+    phase.shell_script = strip_attrs_script + <<-'SCRIPT'
+
 if [ -n "${TARGET_BUILD_DIR:-}" ] && [ -n "${FULL_PRODUCT_NAME:-}" ]; then
-  xattr -cr "${TARGET_BUILD_DIR}/${FULL_PRODUCT_NAME}" 2>/dev/null || true
+  strip_forg3_attrs "${TARGET_BUILD_DIR}/${FULL_PRODUCT_NAME}"
 fi
 SCRIPT
+  end
+
+  frameworks_script = File.join(__dir__, 'Pods', 'Target Support Files', 'Pods-App', 'Pods-App-frameworks.sh')
+  if File.exist?(frameworks_script)
+    contents = File.read(frameworks_script)
+    unless contents.include?('strip_forg3_attrs "$1"')
+      contents = contents.sub(
+        "# Signs a framework with the provided identity\ncode_sign_if_enabled() {",
+        "#{strip_attrs_script}\n# Signs a framework with the provided identity\ncode_sign_if_enabled() {\n  strip_forg3_attrs \"$1\""
+      )
+      File.write(frameworks_script, contents)
+    end
   end
 end

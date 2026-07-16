@@ -124,9 +124,9 @@ const blankForm: CreateForm = {
 const manualTierRows = [
   {
     feature: 'Base price',
-    payPerSignature: '$12/year',
-    pro: '$19/month',
-    business: '$49/month'
+    payPerSignature: '$11.99/year',
+    pro: '$18.99/month',
+    business: '$39.99/month'
   },
   {
     feature: 'Usage charge',
@@ -779,14 +779,14 @@ function Dashboard() {
           </div>
           <ol>
             <li>
-              <strong>Sign in with your email.</strong> We send a one-time code — no password to remember.
+              <strong>Create or access your free account.</strong> We send a one-time code — no password to remember.
             </li>
             <li>
-              <strong>Upload a PDF and add recipients.</strong> Each recipient gets a private link addressed to their
+              <strong>Activate sender access.</strong> A paid sender plan unlocks document packets and email requests.
+            </li>
+            <li>
+              <strong>Recipients verify and sign free.</strong> Each recipient gets a private link addressed to their
               email only.
-            </li>
-            <li>
-              <strong>Recipients verify and sign.</strong> You both get a sealed PDF with an audit certificate page.
             </li>
           </ol>
         </section>
@@ -1227,7 +1227,7 @@ function RecipientInboxScreen() {
         <section className="complete-panel inbox-auth-panel">
           <Inbox size={42} />
           <h1>Open documents assigned to your email</h1>
-          <p>Sign in with the email address the sender added to the document.</p>
+          <p>Create or sign in to a free Forg3 account with the email address the sender added.</p>
           <AuthControls onSignedIn={setSession} />
           {message && <div className="inline-note">{message}</div>}
         </section>
@@ -1503,7 +1503,7 @@ function InstructionManual() {
           </div>
           <ol>
             <li>Sign in with email code, Google, or Apple.</li>
-            <li>Activate a subscription tier.</li>
+            <li>Activate a sender subscription tier.</li>
             <li>Choose a PDF, add a document title, signers, field placement, identity settings, and expiration window.</li>
             <li>Create the packet.</li>
             <li>Forg3 creates signer-specific recipient links and delivers them by the configured email provider.</li>
@@ -1519,6 +1519,7 @@ function InstructionManual() {
             <h3>Signer experience</h3>
           </div>
           <ol>
+            <li>The signer creates or signs in to a free Forg3 account with the assigned email.</li>
             <li>The signer opens the link before it expires.</li>
             <li>The signer reviews the PDF.</li>
             <li>The signer draws with a finger, stylus, mouse, or touchpad, or uses the typed-signature option.</li>
@@ -2240,7 +2241,7 @@ function getEntitlementTitle(entitlement: SubscriptionEntitlement | null) {
     return entitlement.plan.name;
   }
 
-  return 'Choose a plan';
+  return 'Sender plan required';
 }
 
 function getEntitlementDescription(entitlement: SubscriptionEntitlement | null) {
@@ -2252,7 +2253,7 @@ function getEntitlementDescription(entitlement: SubscriptionEntitlement | null) 
     return `Active until ${formatDate(entitlement.subscription.renewsAt)}`;
   }
 
-  return 'A subscription is required to create signing links.';
+  return 'Free recipient accounts can review and sign assigned packets. A paid sender plan is required to create signing links.';
 }
 
 function getEntitlementPriceLine(entitlement: SubscriptionEntitlement) {

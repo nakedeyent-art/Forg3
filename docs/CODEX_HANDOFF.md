@@ -1,40 +1,65 @@
 # Codex Handoff — Forg3 Sign
 
-_Last updated: 2026-07-14 UTC (Codex session: release hardening, branded native assets, Android hardware launch, iOS provisioning boundary)_
+_Last updated: 2026-07-15 UTC (Codex session: Google Play products, release-readiness pass, Firebase/RTDN prep, mobile release sync)_
 
 ## Current live state
 
 | Thing | Value |
 | --- | --- |
-| Staging URL | **https://forg3.nak3deye.com** live. Cloudflare DNS has an A record `forg3.nak3deye.com -> 193.122.161.167` with proxy disabled so Caddy can manage Let's Encrypt directly. |
-| Compute | OCI container instance `forg3-staging-v4` (us-ashburn, `CI.Standard.A1.Flex` 1 OCPU / 2 GB), containers: `forg3-app` + `caddy`, public IP `193.122.161.167` |
+| Staging URL | **https://forg3.nak3deye.com** live. Cloudflare DNS has a proxied A record `forg3.nak3deye.com -> 129.158.196.248`; Cloudflare SSL/TLS mode is `Full`. |
+| Compute | OCI container instance `forg3-staging-v6` (us-ashburn, `CI.Standard.A1.Flex` 1 OCPU / 2 GB), containers: `forg3-app` + `caddy`, public IP `129.158.196.248` |
 | Database | **Supabase managed Postgres**, project `forg3-staging` (ref `qmipdkaoptxsevlfkrfm`, us-east-1, free tier, daily backups). App connects as role `forg3_app` via session pooler `aws-0-us-east-1.pooler.supabase.com:5432`, schema `forg3` (NOT exposed via Supabase REST API) |
 | Image | `ghcr.io/nakedeyent-art/forg3:main` (multi-arch, published by CI on every push to main) |
-| Repo | github.com/nakedeyent-art/Forg3, default branch `main`, CI green on merge commit `b30e035256f70018e7cdc114f6f64edfc7197f5f`; `publish-ghcr` completed in CI run `29300693453` |
-| Old staging | Prior v1/v2/v3 container instances are deleted. Current live DNS target is v4 only. |
+| Repo | github.com/nakedeyent-art/Forg3, default branch `main`, CI green on commit `866c3b8 Add sender signed alert and update pricing`; `publish-ghcr` completed in CI run `29387384195` |
+| Old staging | v5 was deleted after TLS repair testing; v4 is stopped after v6 verification. Current live DNS target is v6 only. |
 | Local secrets/state | `~/Documents/Forg3/.deploy/` (git-ignored): OCIDs, device id, Supabase `forg3_app` password, encryption key, test artifacts |
 
-## How staging v4 works
+## How staging v6 works
 
-- Both containers share the pod network. `caddy` runs `caddy reverse-proxy --from https://forg3.nak3deye.com --to localhost:4127` with automatic Let's Encrypt. The app env sets `PUBLIC_SIGNING_BASE_URL=https://forg3.nak3deye.com`.
-- The v4 app container booted successfully: `storage: postgres, encrypted at rest: yes`.
+- Both containers share the pod network. `caddy` runs a generated Caddyfile for `forg3.nak3deye.com` with `tls internal` and proxies to `127.0.0.1:4127`. Cloudflare terminates the public certificate and connects to origin in `Full` mode. This avoids ephemeral-container Let's Encrypt duplicate-certificate rate limits.
+- The v6 app container booted successfully: `storage: postgres, encrypted at rest: yes`.
 - Public health is live: `https://forg3.nak3deye.com/api/health` returns `{"ok":true,"service":"forg3",...}`.
-- If the instance is recreated, the IP changes. Update DNS to the new public IP and wait for Caddy to issue a fresh certificate.
+- If the instance is recreated, the IP changes. Update the proxied Cloudflare A record to the new public IP.
 - OCI tenancy limits are 0 for managed PostgreSQL **and** reserved public IPs, so `forg3.nak3deye.com` currently points at the instance's ordinary public IP. A limit-increase ticket would unlock reserved-IP stability.
 - NSG allows 80 (ACME) / 443 / 4127 ingress.
 
-## Verified end-to-end on v4 (2026-07-14 UTC)
+## Pone production-domain resend (2026-07-15 UTC)
+
+Pone's combined signing packet was sent through the live production-domain stack:
+
+- Recipient: Harold Ponder aka Pone `<euponder@gmail.com>`.
+- Sender account: Nak3d Eye Enterprises `<st@nak3deye.com>`.
+- Document ID: `665d1384-bd64-48ba-a831-a8398223c45a`.
+- Signer ID: `b7d38548-cd22-453f-af0b-c026aebe140d`.
+- Document hash: `4a4138a30b4e69c748d7dbd0aa21eea113ee5e510a1660a036207f04e5d18cb6`.
+- Delivery: Microsoft Graph `sent`, provider sender `st@nak3deye.com`, reply-to `st@nak3deye.com`, Sent Items confirmed at `2026-07-15T04:43:09Z`.
+- Recipient-only checks: unauthenticated assigned signer API returned `401`; sender account probing Pone's assigned signer API returned `404`.
+- Local rights-packet log: `/Users/rizzolini/Documents/Nak3d Eye Music/rights_packets/09_outgoing_email_packets/Pone_Forg3_2026-07-15/SENT_LOG_2026-07-15.md`.
+
+## End-to-end verification history
+
+Live v6 status (2026-07-15 UTC): `forg3.nak3deye.com` is proxied through Cloudflare to OCI v6 (`129.158.196.248`), public `/api/health` passes over HTTPS, owner email login and device 2FA pass, and Pone's production-domain packet was sent through Microsoft Graph. Completion of the full signed/sealed loop now depends on Pone opening and signing the packet.
+
+Prior full signing loop on v4 (2026-07-14 UTC):
 
 Email-code login (real Microsoft Graph delivery) → device 2FA → document create (creator account `st@nak3deye.com`) → signing-link email from `st@nak3deye.com` with `https://forg3.nak3deye.com/#/inbox/sign/...` URL → unauthenticated assigned-room open returned `401` → verified recipient opened room → signed → owner downloaded sealed PDF → audit chain `auth.login → auth.mfa_verified → document.created → document.viewed → document.signer_signed → document.signed` links intact. Sealed test PDF: `.deploy/forg3-v4-signed.pdf`.
 
-Feature status on v4: email delivery configured via Microsoft Graph; object storage configured as Postgres-backed encrypted blobs with `encryptedAtRest=true`.
+Feature status on the live stack: email delivery configured via Microsoft Graph; object storage configured as Postgres-backed encrypted blobs with `encryptedAtRest=true`.
 
 The signing-room PDF surface now uses a PDF.js canvas renderer (`src/components/PdfPreview.tsx`) instead of the old iframe embed. This removes the mobile-fragile browser PDF viewer dependency and gives users paging, zoom, and download fallback controls.
 
 Operational checks completed from this repo:
 
-- `npm run typecheck`, `VITE_API_BASE_URL=https://forg3.nak3deye.com npm run cap:sync`, `npm run smoke`, and `npm audit --audit-level=moderate --omit=dev` passed; audit reports 0 vulnerabilities after the `uuid` override in `package.json`.
-- Production monitor: DNS `forg3.nak3deye.com -> 193.122.161.167` and public `/api/health` both passed.
+- `npm run build:mobile:release`, `npm run smoke`, and `npm audit --omit=dev` passed; audit reports 0 vulnerabilities. Release mobile assets verify against `https://forg3.nak3deye.com`.
+- Production monitor: Cloudflare proxied DNS for `forg3.nak3deye.com` points at v6 (`129.158.196.248` origin), and public `/api/health` passes over HTTPS.
+- `npm run store:screenshots` generated App Store/Play screenshots. `npm run appstore:screenshots` uploaded 8 iPhone 6.9 and 8 iPad 13 screenshots; all are asset-delivery `COMPLETE`.
+- `npm run appstore:products` configured Apple subscription group/product localizations, review screenshots, availability, and Apple-equalized pricing. `Forg3 Pro` and `Forg3 Business` are `READY_TO_SUBMIT`; Apple requires first subscriptions to be submitted with the app version.
+- Firebase web app exists on Google project `bergen-project`; public config and local Admin credential are installed in `.env.local` / `.deploy/firebase/`. Firebase Auth is initialized, `forg3.nak3deye.com` is authorized, and Google/Apple providers are enabled. Google has client credentials present; Apple is enabled with Apple-specific config present but still needs real-device redirect testing before launch.
+- Google Play RTDN topic `projects/bergen-project/topics/forg3-play-rtdn`, publisher IAM grant, local token, and push subscription are configured. Play Console grants the Firebase service account app-scoped Forg3 permissions. `forg3_pro_monthly/monthly` and `forg3_business_monthly/monthly` exist and are active in Google Play.
+- `npm run play:internal -- .deploy/mobile/forg3-1.0-build2-play-release-20260715T112303Z.aab` uploaded Android versionCode `2` to Play track `internal` with release status `completed`. Play Console shows `Forg3 1.0 (2)` active and available to internal testers, released July 15, 2026 at 7:24 AM, not reviewed yet.
+- Play internal testing has selected list `Forg3 Internal Testers` with 1 user. Tester opt-in link: `https://play.google.com/apps/internaltest/4701195408144317865`.
+- Android device `57221FDCG001AA` opened that opt-in link, but Google Play reported the current account is not invited. Screenshot: `.deploy/mobile/forg3-android-internaltest.png`.
+- `npm run verify:release-readiness` passes using ignored local launch-check env `.env.production.local`; the check verifies public health, mobile release assets, email/Firebase/store billing credentials, active Google Play products, and RTDN protection.
 - Backup: `.deploy/backups/forg3-staging-forg3-schema-20260714T095908Z.dump` created with `pg_dump --schema=forg3`.
 - Restore drill: dump restored into a disposable local Postgres cluster with `--no-owner --no-privileges`; restored counts were `forg3_store_rows=1` and `forg3_objects_rows=4`.
 
@@ -42,7 +67,7 @@ Mobile shells were rebuilt with `VITE_API_BASE_URL=https://forg3.nak3deye.com` a
 
 - Android debug APK: `.deploy/mobile/forg3-forg3-domain-debug.apk` (SHA-256 `b83a82b6d5c356461cfec06c4d09df42998ee1e99f472e05c853dc43d7877dca`)
 - Android signed release AAB for Play internal testing: `.deploy/mobile/forg3-play-internal-release.aab` (SHA-256 `3a919cc03275c1d27b04e65480f1776fe80270453e981fc0837445eed5e129ed`)
-- Current signed Android release AAB: `.deploy/mobile/forg3-1.0-build1-play-release-20260714T193733Z.aab` (SHA-256 `ed7d95271406cd946c713c2d4a4fd4f8a439926cb868841538a87bd427f60cf7`)
+- Current signed Android release AAB: `.deploy/mobile/forg3-1.0-build2-play-release-20260715T112303Z.aab` (SHA-256 `680c29e254fb28c1da3296787b4960480dcad8ed8ba0f3c754d3b29c5f33f50b`)
 - iOS simulator app zip: `.deploy/mobile/forg3-forg3-domain-ios-simulator-app.zip` (SHA-256 `f3b8275e24d506ea962fe096a3161a686c2407b1aedf96a7115862cba23a43e1`)
 - iOS unsigned device app zip: `.deploy/mobile/forg3-forg3-domain-ios-unsigned-device-app.zip` (SHA-256 `357251236bf3fb9083808c7d1fa396b193cbe83533796c3f771dc4495021b1df`)
 - Android hardware launch screenshot after refreshed branding: `.deploy/mobile/forg3-android-branded-launch-20260714T194736Z.png`.
@@ -58,20 +83,22 @@ Mobile shells were rebuilt with `VITE_API_BASE_URL=https://forg3.nak3deye.com` a
 
 ## Remaining work (priority order agreed with owner)
 
-1. Managed DB + HTTPS staging: done and reverified on v4.
-2. Real-device iOS/Android QA (priority 9): Android debug installs and launches on device `57221FDCG001AA`; Android signed AAB builds with JDK 21. iOS simulator build succeeds. Full runtime QA is still pending for paid purchase/restore/manage flows because Apple/Google products and store credentials are not configured. Required final test path: email login, device 2FA, upload PDF, send email link, recipient-only access, signing, sealed PDF download, native purchase, restore purchase, and manage subscription. In-app account deletion (Apple requirement) already exists at `#/settings`.
-3. Native billing (priority 7): server receipt-verification and webhook plumbing exists for Apple App Store Server API and Google Play Developer API, and native StoreKit 2 / Play Billing bridges now exist in the Capacitor shells. Apple client StoreKit payloads are no longer trusted directly; the server verifies through App Store Server API before entitlement. Remaining work is external store credentials/products, Google RTDN configuration, sandbox purchase tests, and the final per-signature billing model decision. Native mobile currently shows Pro/Business only; Pay Per Signature is hidden until the usage model is store-compliant. Product IDs are defined in `server/index.ts` (`com.forg3.sign.*` / `forg3_*`). See `docs/STORE_BILLING_IMPLEMENTATION.md`.
+1. Managed DB + HTTPS staging: done and reverified on v6.
+2. Real-device iOS/Android QA (priority 9): Android debug installs and launches on device `57221FDCG001AA`; Android signed AAB builds with JDK 21 and versionCode `2` is uploaded to Play internal testing. iOS simulator build succeeds, but physical iPhones currently show offline/not present in USB enumeration. Full runtime QA is still pending for paid purchase/restore/manage flows. Required final test path: email login, device 2FA, upload PDF, send email link, recipient-only access, signing, sealed PDF download, native purchase, restore purchase, and manage subscription. In-app account deletion (Apple requirement) already exists at `#/settings`.
+3. Native billing (priority 7): server receipt-verification and webhook plumbing exists for Apple App Store Server API and Google Play Developer API, and native StoreKit 2 / Play Billing bridges now exist in the Capacitor shells. Apple client StoreKit payloads are no longer trusted directly; the server verifies through App Store Server API before entitlement. Apple Pro/Business products are ready to submit with the app version. Google Play Pro/Business products are active and Android internal release versionCode `2` is uploaded. Remaining work is sandbox purchase tests, Google payment-profile bank verification, adding/switching to the Android device's Google tester account, tester opt-in/install confirmation, and the final per-signature billing model decision. Native mobile currently shows Pro/Business only; Pay Per Signature is hidden until the usage model is store-compliant. Product IDs are defined in `server/index.ts` (`com.forg3.sign.*` / `forg3_*`). See `docs/STORE_BILLING_IMPLEMENTATION.md`.
 4. iOS TestFlight upload: blocked until Xcode has the Apple developer account/team and provisioning profile for `com.forg3.sign`. The archive attempt failed with `No Account for Team "37Z7Q5P4UG"` and `No profiles for 'com.forg3.sign' were found`. Local iOS simulator compilation is not the blocker.
 5. Legal review of `#/terms` / `#/privacy` before charging. Release-candidate copy and checklist live in `docs/LEGAL_COMPLIANCE_RELEASE.md`.
-6. Production infrastructure split: staging remains live, but paid launch needs dedicated production secrets/database/backups/monitoring. See `docs/PRODUCTION_LAUNCH_RUNBOOK.md`; `npm run verify:release-readiness` intentionally fails until production secrets and store credentials are installed.
-7. Optional hardening: passkeys, CA-backed PAdES signing cert, relational schema for multi-instance scaling (`docs/PRODUCTION_PERSISTENCE.md`), OCI limit-increase ticket.
+6. Production infrastructure split: the current live OCI/Supabase stack passes release readiness and can be treated as the promoted launch stack if the owner accepts it. A separate long-term production database/instance, reserved IP, backup automation, and monitoring policy are still recommended before broad paid launch. See `docs/PRODUCTION_LAUNCH_RUNBOOK.md`.
+7. External console gates: App Store Connect now has age-rating answers configured, but still needs the real App Review contact first/last name and phone plus the owner/legal export-compliance answer before final submission. Google Play still needs payment-profile bank verification, license testers/tester opt-in, app-content/store-listing final answers, and sandbox purchase verification. Firebase provider setup is complete, but native Google/Apple signup still needs real-device verification.
+8. Optional hardening: passkeys, CA-backed PAdES signing cert, relational schema for multi-instance scaling (`docs/PRODUCTION_PERSISTENCE.md`), OCI limit-increase ticket.
 
 ## Gotchas
 
 - **Never** run staging without `FORG3_OBJECT_ENCRYPTION_KEY` — rotating it orphans existing sealed PDFs (key lives in `.deploy` and in the container env).
-- Login codes rate-limit hard (10/15min per IP, 30s resend cooldown) — during automated testing, reuse the trusted device id in `.deploy/forg3-v4-qa-device-id`.
+- Login codes rate-limit hard (10/15min per IP, 30s resend cooldown) — during automated testing, reuse a current trusted test device id recorded under `.deploy/`.
 - Demo billing is disabled in production; the staging owner works because `FORG3_CREATOR_EMAILS=st@nak3deye.com` grants creator access.
 - Use `npm run build:mobile:release` before every native upload; it rebuilds with `VITE_API_BASE_URL=https://forg3.nak3deye.com`, syncs Capacitor, and verifies the generated mobile bundles.
+- Use Android Studio's bundled JDK 21 for signed Android bundles: `export JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home"`.
 - Supabase MCP `execute_sql` runs as `postgres`, which cannot touch `forg3_app`-owned tables — connect as `forg3_app` (password in `.deploy/supabase-forg3app-password`) for data operations.
 - Supabase/app-role dumps must use `pg_dump --schema=forg3`; whole-database dumps can fail on provider-owned schemas.
 - PDF.js improved mobile signing reliability, but it also adds a large client asset (`pdf.worker` is about 2.2 MB and the main app chunk is above Vite's 500 KB warning threshold). Code-splitting the signing room is the next performance pass before broad launch.

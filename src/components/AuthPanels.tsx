@@ -5,6 +5,8 @@ import {
   AuthApiError,
   checkDeviceSecurity,
   firebaseConfigured,
+  finishPendingProviderSignIn,
+  loadFirebaseConfiguration,
   signIn,
   startDeviceVerification,
   startEmailSignIn,
@@ -23,7 +25,38 @@ export function AuthControls({ onSignedIn }: { onSignedIn: (session: AuthSession
   const [busy, setBusy] = useState('');
   const [message, setMessage] = useState('');
   const [devCode, setDevCode] = useState('');
-  const showProviderButtons = firebaseConfigured() || import.meta.env.DEV;
+  const [showProviderButtons, setShowProviderButtons] = useState(firebaseConfigured() || import.meta.env.DEV);
+
+  useEffect(() => {
+    let active = true;
+
+    loadFirebaseConfiguration()
+      .then(async (configured) => {
+        if (!active) {
+          return;
+        }
+
+        setShowProviderButtons(configured || import.meta.env.DEV);
+
+        if (!configured) {
+          return;
+        }
+
+        const session = await finishPendingProviderSignIn();
+        if (active && session) {
+          onSignedIn(session);
+        }
+      })
+      .catch((error) => {
+        if (active) {
+          setMessage(getErrorMessage(error));
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [onSignedIn]);
 
   const handleProviderSignIn = async (provider: 'google' | 'apple') => {
     setBusy(`auth-${provider}`);

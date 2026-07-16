@@ -221,6 +221,15 @@ app.get('/api/health', (_request, response) => {
   response.json({ ok: true, service: 'forg3', time: new Date().toISOString() });
 });
 
+app.get('/api/auth/firebase-config', (_request, response) => {
+  const firebase = getPublicFirebaseConfig();
+
+  response.json({
+    configured: Boolean(firebase),
+    firebase
+  });
+});
+
 if (devAuthEnabled()) {
   app.post('/api/dev-auth/session', (request, response) => {
     const provider = request.body?.provider === 'apple' ? 'apple' : 'google';
@@ -288,7 +297,8 @@ app.post('/api/auth/mfa/start', requirePrimaryOwner, async (request, response) =
     return;
   }
 
-  const code = generateMfaCode();
+  const reviewAccessCode = getReviewAccessCodeForEmail(owner.email);
+  const code = reviewAccessCode || generateMfaCode();
   const now = new Date();
   const expiresAt = new Date(now.getTime() + getMfaCodeTtlMs()).toISOString();
   const challenge: MfaChallenge = store.addMfaChallenge({
@@ -302,7 +312,9 @@ app.post('/api/auth/mfa/start', requirePrimaryOwner, async (request, response) =
     createdAt: now.toISOString(),
     expiresAt
   });
-  const delivery = await sendMfaCodeEmail(owner.email, owner.name, device.deviceName, code, expiresAt);
+  const delivery = reviewAccessCode
+    ? makeReviewAccessDelivery(challenge.id)
+    : await sendMfaCodeEmail(owner.email, owner.name, device.deviceName, code, expiresAt);
   const nextChallenge = store.updateMfaChallenge(owner.email, challenge.id, (current) => ({
     ...current,
     deliveryId: delivery.providerMessageId
@@ -418,7 +430,8 @@ app.post('/api/auth/email/start', async (request, response) => {
     return;
   }
 
-  const code = generateMfaCode();
+  const reviewAccessCode = getReviewAccessCodeForEmail(email);
+  const code = reviewAccessCode || generateMfaCode();
   const now = new Date();
   const expiresAt = new Date(now.getTime() + getMfaCodeTtlMs()).toISOString();
   const challenge = store.addMfaChallenge({
@@ -432,7 +445,9 @@ app.post('/api/auth/email/start', async (request, response) => {
     createdAt: now.toISOString(),
     expiresAt
   });
-  const delivery = await sendEmailLoginCode(email, name, device.deviceName, code, expiresAt);
+  const delivery = reviewAccessCode
+    ? makeReviewAccessDelivery(challenge.id)
+    : await sendEmailLoginCode(email, name, device.deviceName, code, expiresAt);
 
   store.updateMfaChallenge(email, challenge.id, (current) => ({
     ...current,
@@ -1713,23 +1728,27 @@ async function completeSignerSignature(
     }
 
     const completedSigners = getDocumentSigners(signedDocument!);
-    const signedFileDataUrl = await sealPdfWithSignatures({
-      fileDataUrl: await readOriginalFileDataUrl(document),
-      title: document.title,
-      documentHash: document.documentHash,
-      signatureField: document.signatureField,
-      certificateAuthorityStatus: getFeatureStatus().certificateAuthoritySignatures.configured
-        ? 'Configured provider available'
-        : 'Provider certificate not configured',
-      signers: completedSigners.map((completedSigner) => ({
-        signerName: completedSigner.name,
-        signerEmail: completedSigner.email,
-        signatureDataUrl: completedSigner.signatureDataUrl!,
-        signedAt: completedSigner.signedAt!,
-        role: completedSigner.role,
-        identityVerificationStatus: completedSigner.identityVerification?.status
-      }))
-    });
+    const signedFileDataUrl = await withTimeout(
+      sealPdfWithSignatures({
+        fileDataUrl: await readOriginalFileDataUrl(document),
+        title: document.title,
+        documentHash: document.documentHash,
+        signatureField: document.signatureField,
+        certificateAuthorityStatus: getFeatureStatus().certificateAuthoritySignatures.configured
+          ? 'Configured provider available'
+          : 'Provider certificate not configured',
+        signers: completedSigners.map((completedSigner) => ({
+          signerName: completedSigner.name,
+          signerEmail: completedSigner.email,
+          signatureDataUrl: completedSigner.signatureDataUrl!,
+          signedAt: completedSigner.signedAt!,
+          role: completedSigner.role,
+          identityVerificationStatus: completedSigner.identityVerification?.status
+        }))
+      }),
+      clamp(Number(process.env.PDF_SEAL_TIMEOUT_MS ?? 15_000), 1_000, 120_000),
+      'PDF sealing timed out.'
+    );
     const signedDocumentHash = sha256DataUrl(signedFileDataUrl);
     const signedFileObjectKey = await objectStore.putDataUrl(document.ownerEmail, document.id, 'signed', signedFileDataUrl);
     const finalDocument = store.update(document.id, (current) => ({
@@ -2531,6 +2550,26 @@ function generateMfaCode() {
   return String(crypto.randomInt(100000, 1000000));
 }
 
+function getReviewAccessCodeForEmail(email: string) {
+  const reviewEmail = normalizeEmailAddress(process.env.FORG3_REVIEW_ACCESS_EMAIL || process.env.APP_REVIEW_EMAIL || '');
+  const reviewCode = normalizeMfaCode(process.env.FORG3_REVIEW_ACCESS_CODE || process.env.APP_REVIEW_CODE || '');
+
+  if (!reviewEmail || !reviewCode || !sameEmail(email, reviewEmail)) {
+    return '';
+  }
+
+  return reviewCode;
+}
+
+function makeReviewAccessDelivery(challengeId: string): ProviderDeliveryResult {
+  return {
+    status: 'logged',
+    provider: 'review_access',
+    providerMessageId: `review-${challengeId}`,
+    providerSenderEmail: getSecurityEmailSender()
+  };
+}
+
 function normalizeMfaCode(value: string) {
   const code = value.replace(/\D/g, '').slice(0, 6);
   return code.length === 6 ? code : '';
@@ -2953,6 +2992,24 @@ function getFeatureStatus() {
   };
 }
 
+function getPublicFirebaseConfig() {
+  const apiKey = process.env.VITE_FIREBASE_API_KEY || process.env.FIREBASE_WEB_API_KEY || '';
+  const authDomain = process.env.VITE_FIREBASE_AUTH_DOMAIN || process.env.FIREBASE_AUTH_DOMAIN || '';
+  const projectId = process.env.VITE_FIREBASE_PROJECT_ID || process.env.FIREBASE_PROJECT_ID || '';
+  const appId = process.env.VITE_FIREBASE_APP_ID || process.env.FIREBASE_WEB_APP_ID || '';
+
+  if (!apiKey || !authDomain || !projectId || !appId) {
+    return null;
+  }
+
+  return {
+    apiKey,
+    authDomain,
+    projectId,
+    appId
+  };
+}
+
 function isEmailDeliveryConfigured(provider = normalizeProviderName(process.env.EMAIL_PROVIDER)) {
   if (provider === 'resend') {
     return Boolean(process.env.RESEND_API_KEY && (process.env.FORG3_EMAIL_FROM || process.env.EMAIL_FROM));
@@ -3283,6 +3340,23 @@ function sanitizeDevId(value: string) {
 
 function normalizeLooseName(value: string) {
   return value.trim().replace(/\s+/g, ' ').toLowerCase();
+}
+
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((_resolve, reject) => {
+        timeout = setTimeout(() => reject(new Error(message)), timeoutMs);
+      })
+    ]);
+  } finally {
+    if (timeout) {
+      clearTimeout(timeout);
+    }
+  }
 }
 
 function clamp(value: number, min: number, max: number) {
