@@ -22,12 +22,13 @@ async function main() {
   const ageRating = appInfo?.id ? await getAgeRating(appInfo.id) : null;
   const submission = await getRelationship(`/v1/appStoreVersions/${version.id}/appStoreVersionSubmission`);
   const build = await getRelationship(`/v1/appStoreVersions/${version.id}/build`);
+  const buildDetail = build?.id ? await getBuild(build.id) : null;
   const encryption = build?.id
     ? await getRelationship(`/v1/builds/${build.id}/appEncryptionDeclaration`)
     : null;
 
   if (mode === 'status') {
-    printStatus({ app, version, localization, reviewDetail, ageRating, submission, build, appInfo, encryption });
+    printStatus({ app, version, localization, reviewDetail, ageRating, submission, build, buildDetail, appInfo, encryption });
     return;
   }
 
@@ -36,12 +37,17 @@ async function main() {
     return;
   }
 
-  if (mode === 'submit') {
-    await submitForReview({ version, reviewDetail, ageRating, build });
+  if (mode === 'export-compliance') {
+    await configureExportCompliance({ build, buildDetail });
     return;
   }
 
-  throw new Error(`Unknown mode "${mode}". Use status, configure, or submit.`);
+  if (mode === 'submit') {
+    await submitForReview({ version, reviewDetail, ageRating, build, buildDetail });
+    return;
+  }
+
+  throw new Error(`Unknown mode "${mode}". Use status, configure, export-compliance, or submit.`);
 }
 
 async function configure({ app, version, localization, reviewDetail, ageRating, build }) {
@@ -114,7 +120,7 @@ async function configure({ app, version, localization, reviewDetail, ageRating, 
 
   console.log(`Configured App Review contact, notes, localization polish, and age rating for ${app.attributes.name} ${version.attributes.versionString}.`);
   console.log(`App Review detail: ${configuredReviewDetail.id}`);
-  console.log('Export compliance still must be answered truthfully in App Store Connect unless an encryption declaration is already attached to the build.');
+  console.log('Export compliance still must be answered truthfully with `npm run appstore:submission -- export-compliance` or in App Store Connect.');
 }
 
 async function createReviewDetail(versionId, contact) {
@@ -223,15 +229,42 @@ async function attachBuildBetaDetailIfAvailable(appId, versionId, buildId) {
   });
 }
 
-async function submitForReview({ version, reviewDetail, ageRating, build }) {
+async function configureExportCompliance({ build, buildDetail }) {
+  if (!build?.id) {
+    throw new Error('No build is attached to the App Store version.');
+  }
+
+  if (buildDetail?.attributes?.usesNonExemptEncryption === false) {
+    console.log(`Build ${build.attributes?.version || build.id} already declares no non-exempt encryption.`);
+    return;
+  }
+
+  const response = await api(`/v1/builds/${build.id}`, {
+    method: 'PATCH',
+    body: {
+      data: {
+        type: 'builds',
+        id: build.id,
+        attributes: {
+          usesNonExemptEncryption: false
+        }
+      }
+    }
+  });
+
+  console.log(`Configured export compliance for build ${response.data?.attributes?.version || build.id}: usesNonExemptEncryption=false.`);
+}
+
+async function submitForReview({ version, reviewDetail, ageRating, build, buildDetail }) {
   const blockers = [];
   if (!reviewDetail?.id) blockers.push('missing App Review detail');
   if (!ageRating?.id) blockers.push('missing age rating declaration');
   if (!build?.id) blockers.push('missing attached build');
   const encryption = build?.id ? await getRelationship(`/v1/builds/${build.id}/appEncryptionDeclaration`) : null;
   const exportComplianceConfirmed = String(env.APP_STORE_EXPORT_COMPLIANCE_CONFIRMED || '').toLowerCase() === 'true';
-  if (!encryption?.id && !exportComplianceConfirmed) {
-    blockers.push('missing export-compliance confirmation or attached encryption declaration');
+  const usesNonExemptEncryption = buildDetail?.attributes?.usesNonExemptEncryption;
+  if (usesNonExemptEncryption !== false && !encryption?.id && !exportComplianceConfirmed) {
+    blockers.push('missing export-compliance confirmation, attached encryption declaration, or usesNonExemptEncryption=false on the attached build');
   }
 
   if (blockers.length) {
@@ -277,12 +310,14 @@ function appReviewNotes() {
   ].join('\n\n');
 }
 
-function printStatus({ app, version, localization, reviewDetail, ageRating, submission, build, appInfo, encryption }) {
+function printStatus({ app, version, localization, reviewDetail, ageRating, submission, build, buildDetail, appInfo, encryption }) {
   console.log(`App: ${app.attributes.name} (${app.id}) bundle=${bundleId}`);
   console.log(`Version: ${version.attributes.versionString} state=${version.attributes.appStoreState}`);
   console.log(`Localization: ${localization?.attributes?.locale || 'missing'} (${localization?.id || 'none'})`);
   console.log(`App info: ${appInfo?.id || 'none'}`);
   console.log(`Build: ${build?.attributes?.version || build?.id || 'none'} (${build?.id || 'none'})`);
+  const usesNonExemptEncryption = buildDetail?.attributes?.usesNonExemptEncryption;
+  console.log(`Build uses non-exempt encryption: ${usesNonExemptEncryption === undefined ? 'missing/unknown' : usesNonExemptEncryption}`);
   console.log(`Review detail: ${reviewDetail?.id || 'missing'}`);
   if (reviewDetail?.attributes) {
     console.log(`Review contact: email=${maskEmail(reviewDetail.attributes.contactEmail)} phone=${reviewDetail.attributes.contactPhone ? 'present' : 'missing'}`);
@@ -296,7 +331,7 @@ function printStatus({ app, version, localization, reviewDetail, ageRating, subm
       .map(([key, value]) => `${key}=${value}`);
     console.log(`Age rating non-default answers: ${enabled.length ? enabled.join(', ') : 'none'}`);
   }
-  console.log(`Encryption declaration on attached build: ${encryption?.id || 'missing/unknown'}`);
+  console.log(`Encryption declaration on attached build: ${encryption?.id || (usesNonExemptEncryption === false ? 'none required' : 'missing/unknown')}`);
   console.log(`Submission: ${submission?.id || 'not submitted'}${submission?.attributes?.state ? ` state=${submission.attributes.state}` : ''}`);
 }
 
@@ -320,6 +355,11 @@ async function getVersion(appId) {
   const version = response.data?.find((candidate) => candidate.attributes?.versionString === versionString) || response.data?.[0];
   if (!version) throw new Error('No iOS App Store version found.');
   return version;
+}
+
+async function getBuild(buildId) {
+  const response = await api(`/v1/builds/${buildId}`);
+  return response.data || null;
 }
 
 async function firstOrNull(pathname) {
