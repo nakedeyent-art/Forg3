@@ -533,6 +533,7 @@ export function SettingsScreen() {
             <div className="settings-legal-links">
               <a href="#/terms">Terms of service</a>
               <a href="#/privacy">Privacy policy</a>
+              <a href="#/account-deletion">Account deletion</a>
             </div>
           </section>
 

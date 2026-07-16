@@ -90,7 +90,7 @@ import type {
 import { SignaturePad } from './components/SignaturePad';
 
 interface RouteState {
-  kind: 'dashboard' | 'sign' | 'inbox' | 'assigned-sign' | 'settings' | 'terms' | 'privacy';
+  kind: 'dashboard' | 'sign' | 'inbox' | 'assigned-sign' | 'settings' | 'terms' | 'privacy' | 'account-deletion';
   token?: string;
   documentId?: string;
   signerId?: string;
@@ -275,7 +275,7 @@ export default function App() {
     return <SettingsScreen />;
   }
 
-  if (route.kind === 'terms' || route.kind === 'privacy') {
+  if (route.kind === 'terms' || route.kind === 'privacy' || route.kind === 'account-deletion') {
     return <LegalScreen page={route.kind} />;
   }
 
@@ -2208,6 +2208,10 @@ function parseRoute(): RouteState {
 
   if (hash === 'privacy') {
     return { kind: 'privacy' };
+  }
+
+  if (hash === 'account-deletion') {
+    return { kind: 'account-deletion' };
   }
 
   return { kind: 'dashboard' };

@@ -1,7 +1,9 @@
-import { FileText, ShieldCheck } from 'lucide-react';
+import { FileText, ShieldCheck, Trash2 } from 'lucide-react';
 import { BrandMark } from '../components/BrandMark';
 
-export function LegalScreen({ page }: { page: 'terms' | 'privacy' }) {
+export function LegalScreen({ page }: { page: 'terms' | 'privacy' | 'account-deletion' }) {
+  const label = page === 'terms' ? 'Terms of service' : page === 'privacy' ? 'Privacy policy' : 'Account deletion';
+
   return (
     <div className="signer-shell settings-shell">
       <header className="signer-header">
@@ -9,7 +11,7 @@ export function LegalScreen({ page }: { page: 'terms' | 'privacy' }) {
           <BrandMark />
           <span>
             <strong>Forg3</strong>
-            <small>{page === 'terms' ? 'Terms of service' : 'Privacy policy'}</small>
+            <small>{label}</small>
           </span>
         </a>
         <div className="top-actions">
@@ -25,7 +27,7 @@ export function LegalScreen({ page }: { page: 'terms' | 'privacy' }) {
       </header>
 
       <main className="settings-workspace legal-page">
-        {page === 'terms' ? <TermsContent /> : <PrivacyContent />}
+        {page === 'terms' ? <TermsContent /> : page === 'privacy' ? <PrivacyContent /> : <AccountDeletionContent />}
       </main>
     </div>
   );
@@ -129,6 +131,9 @@ function PrivacyContent() {
         permanently delete your account&apos;s documents, files, and history. Deletion is immediate and irreversible inside
         the active application store; backups expire under the deployment retention policy.
       </p>
+      <p>
+        For direct account and data deletion instructions, visit <a href="#/account-deletion">Account deletion</a>.
+      </p>
 
       <h2>Email delivery</h2>
       <p>
@@ -139,6 +144,49 @@ function PrivacyContent() {
 
       <h2>Changes</h2>
       <p>Material privacy changes will be announced in the app or through the account email address.</p>
+    </section>
+  );
+}
+
+function AccountDeletionContent() {
+  return (
+    <section className="documents-table settings-card legal-card">
+      <h1>Forg3 - Account and Data Deletion</h1>
+      <p className="legal-updated">Last updated: July 16, 2026</p>
+
+      <h2>Delete from the app</h2>
+      <p>
+        Sign in to Forg3 with the email address for the account you want deleted. Open Account settings, go to Export or
+        delete, type your account email address to confirm, and choose Delete account data.
+      </p>
+
+      <h2>What is deleted</h2>
+      <p>
+        Account deletion removes the account&apos;s documents, stored files, subscription entitlement record, trusted
+        devices, active sessions, email delivery records, and account audit history from the active Forg3 application
+        database and object store. The action is immediate and cannot be undone.
+      </p>
+
+      <h2>What may remain temporarily</h2>
+      <p>
+        Encrypted backups, infrastructure logs, app-store billing records, and records that must be kept for fraud
+        prevention, dispute handling, legal obligations, or signed-document audit integrity may remain for the applicable
+        retention period before deletion or anonymization.
+      </p>
+
+      <h2>Cannot access your account?</h2>
+      <p>
+        Email <a href="mailto:st@nak3deye.com">st@nak3deye.com</a> from the address tied to your Forg3 account with
+        &quot;Forg3 account deletion&quot; in the subject. We will use that email address to verify the request.
+      </p>
+
+      <div className="settings-legal-links">
+        <a href="#/settings">
+          <Trash2 size={15} />
+          Open account settings
+        </a>
+        <a href="#/privacy">Privacy policy</a>
+      </div>
     </section>
   );
 }
