@@ -62,9 +62,10 @@ Pay Per Signature remains hidden in native iOS/Android builds until usage billin
 - Android `versionName` is `1.0`; internal Play upload number is `versionCode 2`.
 - Latest signed AAB: `.deploy/mobile/forg3-1.0-build2-play-release-20260715T112303Z.aab`.
 - Uploaded through `npm run play:internal` to track `internal` with release status `completed`; Play Console shows `Forg3 1.0 (2)` active and available to internal testers.
-- Selected tester list: `Forg3 Internal Testers` with 1 user.
+- Selected tester list: `Forg3 Internal Testers` with 2 users (`st@nak3deye.com`, `SeanETerry@gmail.com`).
 - Tester opt-in link: `https://play.google.com/apps/internaltest/4701195408144317865`.
-- Android Publisher API status on 2026-07-16: internal track contains `Forg3 1.0 (2)` with `status=completed`; `edits.testers` returns no Google Groups for the internal track. Current local `adb devices` lists no Android hardware, so tester opt-in/install and sandbox purchase/restore testing are still pending on a connected invited device.
+- Android Publisher API status on 2026-07-16: internal track contains `Forg3 1.0 (2)` with `status=completed`; `edits.testers` returns no Google Groups for the internal track. Play App content shows no pending declarations and 10 actioned declarations dated July 16, 2026. Default store listing is ready to send for review with the Forg3 app name, descriptions, icon, feature graphic, 8 phone screenshots, 8 7-inch tablet screenshots, and 8 10-inch tablet screenshots. Current local `adb devices` lists no Android hardware, so tester opt-in/install and sandbox purchase/restore testing are still pending on a connected invited device.
+- Google Play production access is still gated by Google: the app dashboard requires a closed test with at least 12 opted-in testers for at least 14 days before `Apply for production` becomes available.
 
 ## Required Sandbox Tests
 
