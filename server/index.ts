@@ -293,11 +293,11 @@ app.post('/api/auth/mfa/start', requirePrimaryOwner, async (request, response) =
     return;
   }
 
-  if (isCodeSendThrottled(owner.email, device.deviceIdHash, response)) {
+  const reviewAccessCode = getReviewAccessCodeForEmail(owner.email);
+  if (!reviewAccessCode && isCodeSendThrottled('device_mfa', owner.email, device.deviceIdHash, response)) {
     return;
   }
 
-  const reviewAccessCode = getReviewAccessCodeForEmail(owner.email);
   const code = reviewAccessCode || generateMfaCode();
   const now = new Date();
   const expiresAt = new Date(now.getTime() + getMfaCodeTtlMs()).toISOString();
@@ -426,11 +426,11 @@ app.post('/api/auth/email/start', async (request, response) => {
     return;
   }
 
-  if (isCodeSendThrottled(email, device.deviceIdHash, response)) {
+  const reviewAccessCode = getReviewAccessCodeForEmail(email);
+  if (!reviewAccessCode && isCodeSendThrottled('email_login', email, device.deviceIdHash, response)) {
     return;
   }
 
-  const reviewAccessCode = getReviewAccessCodeForEmail(email);
   const code = reviewAccessCode || generateMfaCode();
   const now = new Date();
   const expiresAt = new Date(now.getTime() + getMfaCodeTtlMs()).toISOString();
@@ -2526,8 +2526,8 @@ function isDeviceMfaRequired() {
   return process.env.FORG3_DEVICE_2FA !== 'false';
 }
 
-function isCodeSendThrottled(email: string, deviceIdHash: string, response: Response) {
-  const throttleKey = `${email.trim().toLowerCase()}:${deviceIdHash}`;
+function isCodeSendThrottled(scope: 'email_login' | 'device_mfa', email: string, deviceIdHash: string, response: Response) {
+  const throttleKey = `${scope}:${email.trim().toLowerCase()}:${deviceIdHash}`;
   const lastSent = lastCodeSentAt.get(throttleKey) || 0;
 
   if (Date.now() - lastSent < codeResendCooldownMs) {

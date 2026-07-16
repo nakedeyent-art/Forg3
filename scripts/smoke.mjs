@@ -27,7 +27,7 @@ const server = spawn(process.execPath, serverEntry, {
     PORT: String(port),
     FORG3_DATA_FILE: path.join(dataDir, 'store.json'),
     FORG3_OBJECT_STORE_PATH: path.join(dataDir, 'objects'),
-    FORG3_DEVICE_2FA: 'false',
+    FORG3_DEVICE_2FA: 'true',
     FORG3_CREATOR_EMAILS: reviewEmail,
     FORG3_REVIEW_ACCESS_EMAIL: reviewEmail,
     FORG3_REVIEW_ACCESS_CODE: reviewCode,
@@ -74,6 +74,7 @@ async function run() {
     code: reviewCode
   });
   check('review access reusable code issues a bearer token', reviewVerify.status === 200 && Boolean(reviewVerify.body.token));
+  await trustCurrentDevice(reviewVerify.body.token, reviewCode, 'review access account');
   const reviewSubscription = await api('GET', '/api/subscription', undefined, reviewVerify.body.token);
   check('review access account has creator sender entitlement', reviewSubscription.status === 200 && reviewSubscription.body.entitlement?.creatorAccess === true);
 
@@ -228,7 +229,28 @@ async function emailLogin(email, name) {
     return '';
   }
 
+  await trustCurrentDevice(verify.body.token, undefined, email);
   return verify.body.token;
+}
+
+async function trustCurrentDevice(token, expectedCode, label) {
+  const deviceStatus = await api('GET', '/api/auth/device', undefined, token);
+  check(`${label} sees device verification requirement`, deviceStatus.status === 200 && deviceStatus.body.required === true);
+
+  if (deviceStatus.body.trusted === true) {
+    return;
+  }
+
+  const start = await api('POST', '/api/auth/mfa/start', { deviceName: 'Smoke Device' }, token);
+  const code = expectedCode || start.body.devCode;
+  check(`${label} can start device verification immediately after email login`, start.status === 201 && Boolean(code));
+
+  const verify = await api('POST', '/api/auth/mfa/verify', {
+    deviceName: 'Smoke Device',
+    challengeId: start.body.challengeId,
+    code
+  }, token);
+  check(`${label} can complete device verification`, verify.status === 200 && verify.body.trusted === true);
 }
 
 function verifyAuditChain(events) {
