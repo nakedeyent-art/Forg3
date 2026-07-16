@@ -7,6 +7,7 @@ const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const apiBase = 'https://api.appstoreconnect.apple.com';
 const env = loadEnv();
 const credential = loadCredential();
+const mode = process.argv[2] || 'configure';
 const reviewScreenshotPath = path.join(
   rootDir,
   '.deploy',
@@ -39,13 +40,22 @@ const products = [
 await main();
 
 async function main() {
-  if (!fs.existsSync(reviewScreenshotPath)) {
-    throw new Error(`Subscription review screenshot is missing at ${path.relative(rootDir, reviewScreenshotPath)}.`);
-  }
-
   const app = await getApp();
   const group = await getSubscriptionGroup(app.id);
   const subscriptions = await listSubscriptions(group.id);
+
+  if (mode === 'status') {
+    await printStatus(group.id);
+    return;
+  }
+
+  if (mode !== 'configure') {
+    throw new Error(`Unknown mode "${mode}". Use configure or status.`);
+  }
+
+  if (!fs.existsSync(reviewScreenshotPath)) {
+    throw new Error(`Subscription review screenshot is missing at ${path.relative(rootDir, reviewScreenshotPath)}.`);
+  }
 
   console.log(`Configuring App Store subscriptions for ${app.attributes.name} (${app.id}).`);
 

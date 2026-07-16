@@ -19,15 +19,14 @@ Last updated: 2026-07-16
 ## App Store Connect Status
 
 - App Store Connect app exists: `Forg3`, app id `6790994628`, bundle `com.forg3.sign`, SKU `com.forg3.sign`.
-- iOS version `1.0` exists and is still `PREPARE_FOR_SUBMISSION`.
+- iOS version `1.0` exists and is `WAITING_FOR_REVIEW` as of 2026-07-16.
 - Build `3` is uploaded, `VALID`, and attached to iOS version `1.0`.
 - Paid Apps Agreement, bank account, W-9, and Digital Services Act compliance are active.
-- App metadata is mostly configured through API: name, subtitle, privacy URL, description, keywords, support URL, and screenshots.
+- App metadata is configured through API/UI: name, subtitle, privacy URL, description, keywords, support URL, screenshots, content-rights declaration, primary category `BUSINESS`, free app download pricing, and copyright `2026 NAK3D EYE ENTERPRISES`.
 - App Store screenshots are uploaded and asset-processed: 8 for `APP_IPHONE_67`, 8 for `APP_IPAD_PRO_3GEN_129`.
 - App Store age-rating answers are configured through the App Store Connect API: user-generated content is disclosed, and objectionable-content/web-access/gambling/chat/advertising answers are set to none/false.
-- App Review detail/contact, reviewer notes, and demo account are configured. Build `3` declares `usesNonExemptEncryption=false`; the iOS shell also includes `ITSAppUsesNonExemptEncryption=false` for future uploads. API status on 2026-07-16: iOS version `1.0` is `PREPARE_FOR_SUBMISSION`, build `3` is attached/valid, review detail is present, age rating is configured, and submission is not created.
-- Still required before app submission: final owner approval to create the App Store version submission. Do not run `npm run appstore:submission -- submit` until the owner explicitly approves final submission.
-- Apple subscription group `Forg3 Plans` exists with group localization. `Forg3 Pro` and `Forg3 Business` are `READY_TO_SUBMIT` with Apple-equalized pricing across 175 territories and subscription review screenshots. Apple requires the first subscriptions to be submitted with the app version, not independently.
+- App Review detail/contact, reviewer notes, and demo account are configured. Build `3` declares `usesNonExemptEncryption=false`; the iOS shell also includes `ITSAppUsesNonExemptEncryption=false` for future uploads. API status on 2026-07-16: iOS version `1.0` is `WAITING_FOR_REVIEW`, build `3` is attached/valid, review detail is present, age rating is configured, app privacy is published, and review submission `08bf5fb1-1e5b-4647-a651-b6a9bbcc7e32` has been sent to Apple.
+- Apple subscription group `Forg3 Plans` exists with group localization. `Forg3 Pro` and `Forg3 Business` are `WAITING_FOR_REVIEW` with Apple-equalized pricing across 175 territories and subscription review screenshots. Apple requires the first subscriptions to be submitted with the app version, and both launch subscriptions are included in the app review package.
 - `Forg3 Pay Per Signature` is also configured in App Store Connect, but it remains hidden from the first native mobile launch until the per-signature usage model is packaged as store-managed credits or another approved model.
 
 ## Store Description
@@ -79,14 +78,15 @@ Pay Per Signature remains hidden in native iOS/Android builds until usage billin
 
 ## Privacy Labels / Data Safety
 
-Declare collection of:
+Published App Store privacy labels on 2026-07-16. Declare collection of:
 
-- Contact info: account email, signer email.
-- User content: uploaded PDFs, signature image, signed PDFs.
-- Identifiers: hashed device identifiers, subscription transaction identifiers.
-- Diagnostics/security: audit events, delivery status, authentication/session events.
+- Contact info: Email Address.
+- User content: Other User Content for uploaded PDFs, signature image, signed PDFs, and document packets.
+- Identifiers: User ID and Device ID for account/session/device verification.
+- Purchases: Purchase History for App Store subscription entitlement/restore records.
+- Usage data: Product Interaction for app-functionality audit/security events such as document create/view/sign and delivery state.
 
-Do not declare advertising tracking. Forg3 does not sell document contents and does not intentionally capture signer IP or user-agent data in signing records.
+All published data types are marked as used for App Functionality, linked to the user's identity, and not used for tracking. Do not declare advertising tracking. Forg3 does not sell document contents and does not intentionally capture signer IP or user-agent data in signing records.
 
 ## Screenshot Checklist
 

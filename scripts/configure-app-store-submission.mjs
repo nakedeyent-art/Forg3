@@ -10,6 +10,15 @@ const credential = loadCredential();
 const mode = process.argv[2] || 'status';
 const bundleId = env.APPLE_APP_STORE_BUNDLE_ID || 'com.forg3.sign';
 const versionString = env.APP_STORE_VERSION || '1.0';
+const appStoreCopyright = env.APP_STORE_COPYRIGHT || '2026 NAK3D EYE ENTERPRISES';
+const appStoreContentRightsDeclaration =
+  env.APP_STORE_CONTENT_RIGHTS_DECLARATION || 'DOES_NOT_USE_THIRD_PARTY_CONTENT';
+const appStorePrimaryCategory = env.APP_STORE_PRIMARY_CATEGORY || 'BUSINESS';
+const appStoreBaseTerritory = env.APP_STORE_BASE_TERRITORY || 'USA';
+const launchSubscriptionProductIds = [
+  'com.forg3.sign.pro.monthly',
+  'com.forg3.sign.business.monthly'
+];
 
 await main();
 
@@ -20,15 +29,34 @@ async function main() {
   const reviewDetail = await getRelationship(`/v1/appStoreVersions/${version.id}/appStoreReviewDetail`);
   const appInfo = await getAppInfo(app.id);
   const ageRating = appInfo?.id ? await getAgeRating(appInfo.id) : null;
+  const primaryCategory = appInfo?.id
+    ? await getRelationship(`/v1/appInfos/${appInfo.id}/primaryCategory`)
+    : null;
   const submission = await getRelationship(`/v1/appStoreVersions/${version.id}/appStoreVersionSubmission`);
   const build = await getRelationship(`/v1/appStoreVersions/${version.id}/build`);
   const buildDetail = build?.id ? await getBuild(build.id) : null;
   const encryption = build?.id
     ? await getRelationship(`/v1/builds/${build.id}/appEncryptionDeclaration`)
     : null;
+  const reviewSubmissions = await listReviewSubmissions(app.id);
+  const manualAppPrices = await listManualAppPrices(app.id);
 
   if (mode === 'status') {
-    printStatus({ app, version, localization, reviewDetail, ageRating, submission, build, buildDetail, appInfo, encryption });
+    printStatus({
+      app,
+      version,
+      localization,
+      reviewDetail,
+      ageRating,
+      submission,
+      build,
+      buildDetail,
+      appInfo,
+      primaryCategory,
+      encryption,
+      manualAppPrices,
+      reviewSubmissions
+    });
     return;
   }
 
@@ -42,12 +70,22 @@ async function main() {
     return;
   }
 
+  if (mode === 'metadata') {
+    await configureSubmissionMetadata({ app, version, appInfo, primaryCategory, manualAppPrices });
+    return;
+  }
+
   if (mode === 'submit') {
     await submitForReview({ version, reviewDetail, ageRating, build, buildDetail });
     return;
   }
 
-  throw new Error(`Unknown mode "${mode}". Use status, configure, export-compliance, or submit.`);
+  if (mode === 'review-submit') {
+    await submitReviewPackage({ app, version, reviewDetail, ageRating, build, buildDetail, reviewSubmissions });
+    return;
+  }
+
+  throw new Error(`Unknown mode "${mode}". Use status, configure, export-compliance, metadata, submit, or review-submit.`);
 }
 
 async function configure({ app, version, localization, reviewDetail, ageRating, build }) {
@@ -255,6 +293,73 @@ async function configureExportCompliance({ build, buildDetail }) {
   console.log(`Configured export compliance for build ${response.data?.attributes?.version || build.id}: usesNonExemptEncryption=false.`);
 }
 
+async function configureSubmissionMetadata({ app, version, appInfo, primaryCategory, manualAppPrices }) {
+  if (!appInfo?.id) {
+    throw new Error('No App Info record exists for this app.');
+  }
+
+  if (app.attributes?.contentRightsDeclaration !== appStoreContentRightsDeclaration) {
+    await api(`/v1/apps/${app.id}`, {
+      method: 'PATCH',
+      body: {
+        data: {
+          type: 'apps',
+          id: app.id,
+          attributes: {
+            contentRightsDeclaration: appStoreContentRightsDeclaration
+          }
+        }
+      }
+    });
+    console.log(`Set content rights declaration to ${appStoreContentRightsDeclaration}.`);
+  } else {
+    console.log(`Content rights declaration already set to ${appStoreContentRightsDeclaration}.`);
+  }
+
+  if (version.attributes?.copyright !== appStoreCopyright) {
+    await api(`/v1/appStoreVersions/${version.id}`, {
+      method: 'PATCH',
+      body: {
+        data: {
+          type: 'appStoreVersions',
+          id: version.id,
+          attributes: {
+            copyright: appStoreCopyright
+          }
+        }
+      }
+    });
+    console.log(`Set copyright to ${appStoreCopyright}.`);
+  } else {
+    console.log(`Copyright already set to ${appStoreCopyright}.`);
+  }
+
+  if (primaryCategory?.id !== appStorePrimaryCategory) {
+    await api(`/v1/appInfos/${appInfo.id}`, {
+      method: 'PATCH',
+      body: {
+        data: {
+          type: 'appInfos',
+          id: appInfo.id,
+          relationships: {
+            primaryCategory: {
+              data: {
+                type: 'appCategories',
+                id: appStorePrimaryCategory
+              }
+            }
+          }
+        }
+      }
+    });
+    console.log(`Set primary category to ${appStorePrimaryCategory}.`);
+  } else {
+    console.log(`Primary category already set to ${appStorePrimaryCategory}.`);
+  }
+
+  await ensureFreeAppPricing(app.id, manualAppPrices);
+}
+
 async function submitForReview({ version, reviewDetail, ageRating, build, buildDetail }) {
   const blockers = [];
   if (!reviewDetail?.id) blockers.push('missing App Review detail');
@@ -300,6 +405,84 @@ async function submitForReview({ version, reviewDetail, ageRating, build, buildD
   console.log(`Submitted App Store version ${version.attributes.versionString} for review: ${response.data?.id || 'created'}.`);
 }
 
+async function submitReviewPackage({ app, version, reviewDetail, ageRating, build, buildDetail, reviewSubmissions }) {
+  const blockers = [];
+  if (!reviewDetail?.id) blockers.push('missing App Review detail');
+  if (!ageRating?.id) blockers.push('missing age rating declaration');
+  if (!build?.id) blockers.push('missing attached build');
+  if (buildDetail?.attributes?.usesNonExemptEncryption !== false) {
+    blockers.push('attached build does not declare usesNonExemptEncryption=false');
+  }
+  if (version.attributes?.appStoreState !== 'PREPARE_FOR_SUBMISSION') {
+    blockers.push(`App Store version is ${version.attributes?.appStoreState || 'state unknown'}, not PREPARE_FOR_SUBMISSION`);
+  }
+
+  if (blockers.length) {
+    console.log('Cannot create review submission package yet:');
+    for (const blocker of blockers) console.log(`- ${blocker}`);
+    process.exitCode = 2;
+    return;
+  }
+
+  const activeReviewSubmission = reviewSubmissions.find((candidate) => {
+    const attributes = candidate.attributes || {};
+    return !attributes.submitted && !attributes.canceled;
+  });
+
+  const reviewSubmission = activeReviewSubmission || await createReviewSubmission(app.id);
+  console.log(`Review submission: ${reviewSubmission.id}${activeReviewSubmission ? ' (existing draft)' : ' (created)'}`);
+
+  await createReviewSubmissionItem(reviewSubmission.id, 'appStoreVersion', 'appStoreVersions', version.id);
+  console.log(`Included app version ${version.attributes.versionString}.`);
+
+  const group = await getSubscriptionGroup(app.id);
+  const groupVersion = await getLatestVersionOrCreate({
+    relationshipPath: `/v1/subscriptionGroups/${group.id}/versions?limit=20`,
+    createPath: '/v1/subscriptionGroupVersions',
+    createType: 'subscriptionGroupVersions',
+    relationshipName: 'subscriptionGroup',
+    relatedType: 'subscriptionGroups',
+    relatedId: group.id
+  });
+  await createReviewSubmissionItem(reviewSubmission.id, 'subscriptionGroupVersion', 'subscriptionGroupVersions', groupVersion.id);
+  console.log(`Included subscription group ${group.attributes?.referenceName || group.id}.`);
+
+  const subscriptions = await listSubscriptions(group.id);
+  for (const productId of launchSubscriptionProductIds) {
+    const subscription = subscriptions.find((candidate) => candidate.attributes?.productId === productId);
+    if (!subscription) {
+      throw new Error(`Subscription product not found in App Store Connect: ${productId}`);
+    }
+
+    const subscriptionVersion = await getLatestVersionOrCreate({
+      relationshipPath: `/v1/subscriptions/${subscription.id}/versions?limit=20`,
+      createPath: '/v1/subscriptionVersions',
+      createType: 'subscriptionVersions',
+      relationshipName: 'subscription',
+      relatedType: 'subscriptions',
+      relatedId: subscription.id
+    });
+
+    await createReviewSubmissionItem(reviewSubmission.id, 'subscriptionVersion', 'subscriptionVersions', subscriptionVersion.id);
+    console.log(`Included ${productId}.`);
+  }
+
+  await api(`/v1/reviewSubmissions/${reviewSubmission.id}`, {
+    method: 'PATCH',
+    body: {
+      data: {
+        type: 'reviewSubmissions',
+        id: reviewSubmission.id,
+        attributes: {
+          submitted: true
+        }
+      }
+    }
+  });
+
+  console.log(`Submitted review package ${reviewSubmission.id} for App Review.`);
+}
+
 function appReviewNotes() {
   return [
     'Forg3 is a secure e-signature app for PDF documents. Review can sign in with the supplied email test account/code flow.',
@@ -310,11 +493,29 @@ function appReviewNotes() {
   ].join('\n\n');
 }
 
-function printStatus({ app, version, localization, reviewDetail, ageRating, submission, build, buildDetail, appInfo, encryption }) {
+function printStatus({
+  app,
+  version,
+  localization,
+  reviewDetail,
+  ageRating,
+  submission,
+  build,
+  buildDetail,
+  appInfo,
+  primaryCategory,
+  encryption,
+  manualAppPrices,
+  reviewSubmissions
+}) {
   console.log(`App: ${app.attributes.name} (${app.id}) bundle=${bundleId}`);
   console.log(`Version: ${version.attributes.versionString} state=${version.attributes.appStoreState}`);
   console.log(`Localization: ${localization?.attributes?.locale || 'missing'} (${localization?.id || 'none'})`);
   console.log(`App info: ${appInfo?.id || 'none'}`);
+  console.log(`Content rights declaration: ${app.attributes.contentRightsDeclaration || 'missing'}`);
+  console.log(`Primary category: ${primaryCategory?.id || 'missing'}`);
+  console.log(`Copyright: ${version.attributes.copyright || 'missing'}`);
+  console.log(`App pricing: ${formatAppPricing(manualAppPrices)}`);
   console.log(`Build: ${build?.attributes?.version || build?.id || 'none'} (${build?.id || 'none'})`);
   const usesNonExemptEncryption = buildDetail?.attributes?.usesNonExemptEncryption;
   console.log(`Build uses non-exempt encryption: ${usesNonExemptEncryption === undefined ? 'missing/unknown' : usesNonExemptEncryption}`);
@@ -333,6 +534,7 @@ function printStatus({ app, version, localization, reviewDetail, ageRating, subm
   }
   console.log(`Encryption declaration on attached build: ${encryption?.id || (usesNonExemptEncryption === false ? 'none required' : 'missing/unknown')}`);
   console.log(`Submission: ${submission?.id || 'not submitted'}${submission?.attributes?.state ? ` state=${submission.attributes.state}` : ''}`);
+  console.log(`Review submissions: ${reviewSubmissions.length ? reviewSubmissions.map(formatReviewSubmission).join(', ') : 'none'}`);
 }
 
 async function getApp() {
@@ -344,6 +546,22 @@ async function getApp() {
 
 async function getAppInfo(appId) {
   return firstOrNull(`/v1/apps/${appId}/appInfos?limit=10`);
+}
+
+async function getSubscriptionGroup(appId) {
+  const response = await api(`/v1/apps/${appId}/subscriptionGroups?limit=50`);
+  const group = response.data?.find((candidate) => candidate.attributes?.referenceName === 'Forg3 Plans') || response.data?.[0];
+
+  if (!group) {
+    throw new Error('No App Store subscription group found.');
+  }
+
+  return group;
+}
+
+async function listSubscriptions(groupId) {
+  const response = await api(`/v1/subscriptionGroups/${groupId}/subscriptions?limit=50`);
+  return response.data || [];
 }
 
 async function getAgeRating(appInfoId) {
@@ -360,6 +578,193 @@ async function getVersion(appId) {
 async function getBuild(buildId) {
   const response = await api(`/v1/builds/${buildId}`);
   return response.data || null;
+}
+
+async function listManualAppPrices(appId) {
+  try {
+    const response = await api(`/v1/appPriceSchedules/${appId}/manualPrices?limit=20&include=appPricePoint`);
+    return response.data || [];
+  } catch (error) {
+    if (error.status === 404) return [];
+    throw error;
+  }
+}
+
+async function listReviewSubmissions(appId) {
+  const response = await api(`/v1/reviewSubmissions?filter[app]=${appId}&limit=20`);
+  return response.data || [];
+}
+
+async function createReviewSubmission(appId) {
+  const response = await api('/v1/reviewSubmissions', {
+    method: 'POST',
+    body: {
+      data: {
+        type: 'reviewSubmissions',
+        attributes: {
+          platform: 'IOS'
+        },
+        relationships: {
+          app: {
+            data: {
+              type: 'apps',
+              id: appId
+            }
+          }
+        }
+      }
+    }
+  });
+
+  return response.data;
+}
+
+async function ensureFreeAppPricing(appId, manualAppPrices) {
+  const hasCurrentManualPrice = manualAppPrices.some((price) => {
+    const attributes = price.attributes || {};
+    return attributes.manual && attributes.startDate === null && attributes.endDate === null;
+  });
+
+  if (hasCurrentManualPrice) {
+    console.log('App pricing already has a current manual price.');
+    return;
+  }
+
+  const pricePoint = await getFreeAppPricePoint(appId, appStoreBaseTerritory);
+  const localPriceId = '${free-current-price}';
+  await api('/v1/appPriceSchedules', {
+    method: 'POST',
+    body: {
+      data: {
+        type: 'appPriceSchedules',
+        relationships: {
+          app: {
+            data: {
+              type: 'apps',
+              id: appId
+            }
+          },
+          baseTerritory: {
+            data: {
+              type: 'territories',
+              id: appStoreBaseTerritory
+            }
+          },
+          manualPrices: {
+            data: [
+              {
+                type: 'appPrices',
+                id: localPriceId
+              }
+            ]
+          }
+        }
+      },
+      included: [
+        {
+          type: 'appPrices',
+          id: localPriceId,
+          relationships: {
+            appPricePoint: {
+              data: {
+                type: 'appPricePoints',
+                id: pricePoint.id
+              }
+            }
+          }
+        }
+      ]
+    }
+  });
+
+  console.log(`Configured app download pricing as free in ${appStoreBaseTerritory}.`);
+}
+
+async function getFreeAppPricePoint(appId, territoryId) {
+  const response = await api(`/v1/apps/${appId}/appPricePoints?filter[territory]=${territoryId}&limit=200`);
+  const pricePoint = (response.data || []).find((candidate) => Number(candidate.attributes?.customerPrice) === 0);
+  if (!pricePoint) {
+    throw new Error(`No free app price point found for territory ${territoryId}.`);
+  }
+
+  return pricePoint;
+}
+
+async function getLatestVersionOrCreate({ relationshipPath, createPath, createType, relationshipName, relatedType, relatedId }) {
+  const existing = await api(relationshipPath);
+  const usable = (existing.data || []).find((version) => version.attributes?.state === 'PREPARE_FOR_SUBMISSION') || existing.data?.[0];
+  if (usable) return usable;
+
+  const response = await api(createPath, {
+    method: 'POST',
+    body: {
+      data: {
+        type: createType,
+        relationships: {
+          [relationshipName]: {
+            data: {
+              type: relatedType,
+              id: relatedId
+            }
+          }
+        }
+      }
+    }
+  });
+
+  return response.data;
+}
+
+async function createReviewSubmissionItem(reviewSubmissionId, relationshipName, relatedType, relatedId) {
+  if (await reviewSubmissionHasItem(reviewSubmissionId, relationshipName, relatedType, relatedId)) {
+    console.log(`Review item already present: ${relatedType}/${relatedId}`);
+    return;
+  }
+
+  try {
+    await api('/v1/reviewSubmissionItems', {
+      method: 'POST',
+      body: {
+        data: {
+          type: 'reviewSubmissionItems',
+          relationships: {
+            reviewSubmission: {
+              data: {
+                type: 'reviewSubmissions',
+                id: reviewSubmissionId
+              }
+            },
+            [relationshipName]: {
+              data: {
+                type: relatedType,
+                id: relatedId
+              }
+            }
+          }
+        }
+      }
+    });
+  } catch (error) {
+    if (
+      error.status === 409 &&
+      await reviewSubmissionHasItem(reviewSubmissionId, relationshipName, relatedType, relatedId)
+    ) {
+      console.log(`Review item already present: ${relatedType}/${relatedId}`);
+      return;
+    }
+    throw error;
+  }
+}
+
+async function reviewSubmissionHasItem(reviewSubmissionId, relationshipName, relatedType, relatedId) {
+  const response = await api(
+    `/v1/reviewSubmissions/${reviewSubmissionId}/items?limit=50&include=appStoreVersion,subscriptionVersion,subscriptionGroupVersion`
+  );
+
+  return (response.data || []).some((item) => {
+    const related = item.relationships?.[relationshipName]?.data;
+    return related?.type === relatedType && related?.id === relatedId;
+  });
 }
 
 async function firstOrNull(pathname) {
@@ -397,7 +802,14 @@ async function api(pathname, options = {}) {
   }
 
   if (!response.ok) {
-    throw new Error(`${options.method || 'GET'} ${pathname} failed (${response.status}): ${JSON.stringify(body).slice(0, 1200)}`);
+    const error = new Error(
+      `${options.method || 'GET'} ${pathname} failed (${response.status}): ${JSON.stringify(body).slice(0, 3000)}`
+    );
+    error.status = response.status;
+    error.body = body;
+    error.pathname = pathname;
+    error.method = options.method || 'GET';
+    throw error;
   }
 
   return body;
@@ -467,4 +879,20 @@ function maskEmail(value) {
   if (!value || !value.includes('@')) return value ? 'present' : 'missing';
   const [name, domain] = value.split('@');
   return `${name.slice(0, 2)}***@${domain}`;
+}
+
+function formatReviewSubmission(reviewSubmission) {
+  const attributes = reviewSubmission.attributes || {};
+  return `${reviewSubmission.id}:${attributes.state || 'state?'}:submitted=${attributes.submitted ? 'true' : 'false'}`;
+}
+
+function formatAppPricing(manualAppPrices) {
+  if (!manualAppPrices.length) return 'missing';
+  const current = manualAppPrices.find((price) => {
+    const attributes = price.attributes || {};
+    return attributes.manual && attributes.startDate === null && attributes.endDate === null;
+  });
+  if (!current) return `${manualAppPrices.length} manual price(s), no current price`;
+  const pricePointId = current.relationships?.appPricePoint?.data?.id || 'unknown price point';
+  return `current manual price (${pricePointId})`;
 }
