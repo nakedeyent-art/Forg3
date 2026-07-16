@@ -1,6 +1,6 @@
 # Forg3 Store Submission Packet
 
-Last updated: 2026-07-15
+Last updated: 2026-07-16
 
 ## App Identity
 
@@ -25,7 +25,7 @@ Last updated: 2026-07-15
 - App metadata is mostly configured through API: name, subtitle, privacy URL, description, keywords, support URL, and screenshots.
 - App Store screenshots are uploaded and asset-processed: 8 for `APP_IPHONE_67`, 8 for `APP_IPAD_PRO_3GEN_129`.
 - App Store age-rating answers are configured through the App Store Connect API: user-generated content is disclosed, and objectionable-content/web-access/gambling/chat/advertising answers are set to none/false.
-- Still required before app submission: App Review contact first name, last name, phone, export-compliance answer, and the final submit action.
+- Still required before app submission: App Review detail/contact first name, last name, phone, export-compliance answer/declaration, and the final submit action. API status on 2026-07-16: iOS version `1.0` is `PREPARE_FOR_SUBMISSION`, build `3` is attached/valid, review detail is missing, age rating is configured, encryption declaration is missing/unknown, and submission is not created.
 - Apple subscription group `Forg3 Plans` exists with group localization. `Forg3 Pro` and `Forg3 Business` are `READY_TO_SUBMIT` with Apple-equalized pricing across 175 territories and subscription review screenshots. Apple requires the first subscriptions to be submitted with the app version, not independently.
 - `Forg3 Pay Per Signature` is also configured in App Store Connect, but it remains hidden from the first native mobile launch until the per-signature usage model is packaged as store-managed credits or another approved model.
 
@@ -64,7 +64,7 @@ Pay Per Signature remains hidden in native iOS/Android builds until usage billin
 - Uploaded through `npm run play:internal` to track `internal` with release status `completed`; Play Console shows `Forg3 1.0 (2)` active and available to internal testers.
 - Selected tester list: `Forg3 Internal Testers` with 1 user.
 - Tester opt-in link: `https://play.google.com/apps/internaltest/4701195408144317865`.
-- Current connected Pixel opens the opt-in link but is not invited under its active Google account. Add that Google account to `Forg3 Internal Testers` or switch the device to the invited tester account before sandbox purchase/restore testing.
+- Android Publisher API status on 2026-07-16: internal track contains `Forg3 1.0 (2)` with `status=completed`; `edits.testers` returns no Google Groups for the internal track. Current local `adb devices` lists no Android hardware, so tester opt-in/install and sandbox purchase/restore testing are still pending on a connected invited device.
 
 ## Required Sandbox Tests
 

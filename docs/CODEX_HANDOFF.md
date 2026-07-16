@@ -1,20 +1,20 @@
 # Codex Handoff — Forg3 Sign
 
-_Last updated: 2026-07-15 UTC (Codex session: Google Play products, release-readiness pass, Firebase/RTDN prep, mobile release sync)_
+_Last updated: 2026-07-16 UTC (Codex session: v9 redeploy, Cloudflare DNS cutover, account-deletion release verification)_
 
 ## Current live state
 
 | Thing | Value |
 | --- | --- |
-| Staging URL | **https://forg3.nak3deye.com** live. Cloudflare DNS has a proxied A record `forg3.nak3deye.com -> 129.158.196.248`; Cloudflare SSL/TLS mode is `Full`. |
-| Compute | OCI container instance `forg3-staging-v6` (us-ashburn, `CI.Standard.A1.Flex` 1 OCPU / 2 GB), containers: `forg3-app` + `caddy`, public IP `129.158.196.248` |
+| Staging URL | **https://forg3.nak3deye.com** live. Cloudflare DNS has a proxied A record `forg3.nak3deye.com -> 132.226.52.71`; Cloudflare SSL/TLS mode is `Full`. |
+| Compute | OCI container instance `forg3-staging-v9` (us-ashburn, `CI.Standard.A1.Flex` 1 OCPU / 2 GB), containers: `forg3-app` + `caddy`, public IP `132.226.52.71` |
 | Database | **Supabase managed Postgres**, project `forg3-staging` (ref `qmipdkaoptxsevlfkrfm`, us-east-1, free tier, daily backups). App connects as role `forg3_app` via session pooler `aws-0-us-east-1.pooler.supabase.com:5432`, schema `forg3` (NOT exposed via Supabase REST API) |
 | Image | `ghcr.io/nakedeyent-art/forg3:main` (multi-arch, published by CI on every push to main) |
-| Repo | github.com/nakedeyent-art/Forg3, default branch `main`, CI green on commit `866c3b8 Add sender signed alert and update pricing`; `publish-ghcr` completed in CI run `29387384195` |
-| Old staging | v5 was deleted after TLS repair testing; v4 is stopped after v6 verification. Current live DNS target is v6 only. |
+| Repo | github.com/nakedeyent-art/Forg3, default branch `main`, CI green on commit `c990c1d Add public account deletion page`; `publish-ghcr` completed in CI run `29488283590` |
+| Old staging | v7 is deleted after quota cleanup. v8 remains active as rollback but is no longer the Cloudflare DNS target. Current live DNS target is v9 only. |
 | Local secrets/state | `~/Documents/Forg3/.deploy/` (git-ignored): OCIDs, device id, Supabase `forg3_app` password, encryption key, test artifacts |
 
-## How staging v6 works
+## How current live staging works
 
 - Both containers share the pod network. `caddy` runs a generated Caddyfile for `forg3.nak3deye.com` with `tls internal` and proxies to `127.0.0.1:4127`. Cloudflare terminates the public certificate and connects to origin in `Full` mode. This avoids ephemeral-container Let's Encrypt duplicate-certificate rate limits.
 - The v6 app container booted successfully: `storage: postgres, encrypted at rest: yes`.
@@ -38,7 +38,7 @@ Pone's combined signing packet was sent through the live production-domain stack
 
 ## End-to-end verification history
 
-Live v6 status (2026-07-15 UTC): `forg3.nak3deye.com` is proxied through Cloudflare to OCI v6 (`129.158.196.248`), public `/api/health` passes over HTTPS, owner email login and device 2FA pass, and Pone's production-domain packet was sent through Microsoft Graph. Completion of the full signed/sealed loop now depends on Pone opening and signing the packet.
+Live v9 status (2026-07-16 UTC): `forg3.nak3deye.com` is proxied through Cloudflare to OCI v9 (`132.226.52.71`), public `/api/health` passes over HTTPS, and the live frontend bundle contains the public account-deletion route (`#/account-deletion`). The v9 app boot log shows `storage: postgres, encrypted at rest: yes`. Pone's production-domain packet was sent earlier through Microsoft Graph; completion of that specific signed/sealed loop still depends on Pone opening and signing the packet.
 
 Prior full signing loop on v4 (2026-07-14 UTC):
 
@@ -50,8 +50,8 @@ The signing-room PDF surface now uses a PDF.js canvas renderer (`src/components/
 
 Operational checks completed from this repo:
 
-- `npm run build:mobile:release`, `npm run smoke`, and `npm audit --omit=dev` passed; audit reports 0 vulnerabilities. Release mobile assets verify against `https://forg3.nak3deye.com`.
-- Production monitor: Cloudflare proxied DNS for `forg3.nak3deye.com` points at v6 (`129.158.196.248` origin), and public `/api/health` passes over HTTPS.
+- `npm run build:mobile:release`, `npm run typecheck`, `npm run build`, `npm run smoke`, `npm run verify:release-readiness`, and `npm audit --omit=dev` passed on 2026-07-16; audit reports 0 vulnerabilities. Release mobile assets verify against `https://forg3.nak3deye.com`.
+- Production monitor: Cloudflare proxied DNS for `forg3.nak3deye.com` points at v9 (`132.226.52.71` origin), public `/api/health` passes over HTTPS, and the live index `Last-Modified` matches the v9 deployment timestamp (`Thu, 16 Jul 2026 09:49:27 GMT`).
 - `npm run store:screenshots` generated App Store/Play screenshots. `npm run appstore:screenshots` uploaded 8 iPhone 6.9 and 8 iPad 13 screenshots; all are asset-delivery `COMPLETE`.
 - `npm run appstore:products` configured Apple subscription group/product localizations, review screenshots, availability, and Apple-equalized pricing. `Forg3 Pro` and `Forg3 Business` are `READY_TO_SUBMIT`; Apple requires first subscriptions to be submitted with the app version.
 - Firebase web app exists on Google project `bergen-project`; public config and local Admin credential are installed in `.env.local` / `.deploy/firebase/`. Firebase Auth is initialized, `forg3.nak3deye.com` is authorized, and Google/Apple providers are enabled. Google has client credentials present; Apple is enabled with Apple-specific config present but still needs real-device redirect testing before launch.
@@ -83,13 +83,13 @@ Mobile shells were rebuilt with `VITE_API_BASE_URL=https://forg3.nak3deye.com` a
 
 ## Remaining work (priority order agreed with owner)
 
-1. Managed DB + HTTPS staging: done and reverified on v6.
-2. Real-device iOS/Android QA (priority 9): Android debug installs and launches on device `57221FDCG001AA`; Android signed AAB builds with JDK 21 and versionCode `2` is uploaded to Play internal testing. iOS simulator build succeeds, but physical iPhones currently show offline/not present in USB enumeration. Full runtime QA is still pending for paid purchase/restore/manage flows. Required final test path: email login, device 2FA, upload PDF, send email link, recipient-only access, signing, sealed PDF download, native purchase, restore purchase, and manage subscription. In-app account deletion (Apple requirement) already exists at `#/settings`.
+1. Managed DB + HTTPS staging: done and reverified on v9.
+2. Real-device iOS/Android QA (priority 9): Android signed AAB builds with JDK 21 and versionCode `2` is uploaded to Play internal testing. `adb devices` currently lists no Android hardware, and `xcrun xctrace list devices` currently shows the physical iPhones/iPad as offline. Full runtime QA is still pending for paid purchase/restore/manage flows. Required final test path: email login, device 2FA, upload PDF, send email link, recipient-only access, signing, sealed PDF download, native purchase, restore purchase, and manage subscription. In-app account deletion exists at `#/settings`, and the public deletion page exists at `#/account-deletion`.
 3. Native billing (priority 7): server receipt-verification and webhook plumbing exists for Apple App Store Server API and Google Play Developer API, and native StoreKit 2 / Play Billing bridges now exist in the Capacitor shells. Apple client StoreKit payloads are no longer trusted directly; the server verifies through App Store Server API before entitlement. Apple Pro/Business products are ready to submit with the app version. Google Play Pro/Business products are active and Android internal release versionCode `2` is uploaded. Remaining work is sandbox purchase tests, Google payment-profile bank verification, adding/switching to the Android device's Google tester account, tester opt-in/install confirmation, and the final per-signature billing model decision. Native mobile currently shows Pro/Business only; Pay Per Signature is hidden until the usage model is store-compliant. Product IDs are defined in `server/index.ts` (`com.forg3.sign.*` / `forg3_*`). See `docs/STORE_BILLING_IMPLEMENTATION.md`.
-4. iOS TestFlight upload: blocked until Xcode has the Apple developer account/team and provisioning profile for `com.forg3.sign`. The archive attempt failed with `No Account for Team "37Z7Q5P4UG"` and `No profiles for 'com.forg3.sign' were found`. Local iOS simulator compilation is not the blocker.
+4. iOS TestFlight/App Store status: App Store Connect app/version exists for `com.forg3.sign`; build `3` is attached and valid. The iOS version remains `PREPARE_FOR_SUBMISSION`. App Review detail is still missing, and export-compliance declaration/confirmation is still missing.
 5. Legal review of `#/terms` / `#/privacy` before charging. Release-candidate copy and checklist live in `docs/LEGAL_COMPLIANCE_RELEASE.md`.
 6. Production infrastructure split: the current live OCI/Supabase stack passes release readiness and can be treated as the promoted launch stack if the owner accepts it. A separate long-term production database/instance, reserved IP, backup automation, and monitoring policy are still recommended before broad paid launch. See `docs/PRODUCTION_LAUNCH_RUNBOOK.md`.
-7. External console gates: App Store Connect now has age-rating answers configured, but still needs the real App Review contact first/last name and phone plus the owner/legal export-compliance answer before final submission. Google Play still needs payment-profile bank verification, license testers/tester opt-in, app-content/store-listing final answers, and sandbox purchase verification. Firebase provider setup is complete, but native Google/Apple signup still needs real-device verification.
+7. External console gates: App Store Connect has age-rating answers configured, but still needs the real App Review contact first/last name and phone plus the owner/legal export-compliance answer before final submission. Google Play internal track is active with `Forg3 1.0 (2)`; the Android Publisher API shows no Google Groups configured for the internal tester track, and individual email-list membership is not exposed through that API. Tester opt-in/device install and sandbox purchase verification are still pending. Firebase provider setup is complete, but native Google/Apple signup still needs real-device verification.
 8. Optional hardening: passkeys, CA-backed PAdES signing cert, relational schema for multi-instance scaling (`docs/PRODUCTION_PERSISTENCE.md`), OCI limit-increase ticket.
 
 ## Gotchas
