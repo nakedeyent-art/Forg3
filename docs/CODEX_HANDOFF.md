@@ -1,23 +1,23 @@
 # Codex Handoff — Forg3 Sign
 
-_Last updated: 2026-07-17 UTC (Codex session: v12 redeploy, Firebase auth CSP fix)_
+_Last updated: 2026-07-17 UTC (Codex session: v13 redeploy, signer email mismatch UX fix)_
 
 ## Current live state
 
 | Thing | Value |
 | --- | --- |
-| Staging URL | **https://forg3.nak3deye.com** live. Cloudflare DNS has a proxied A record `forg3.nak3deye.com -> 132.145.215.79`; Cloudflare SSL/TLS mode is `Full`. |
-| Compute | OCI container instance `forg3-staging-v12` (us-ashburn, `CI.Standard.A1.Flex` 1 OCPU / 2 GB), containers: `forg3-app` + `caddy`, public IP `132.145.215.79` |
+| Staging URL | **https://forg3.nak3deye.com** live. Cloudflare DNS has a proxied A record `forg3.nak3deye.com -> 150.136.187.228`; Cloudflare SSL/TLS mode is `Full`. |
+| Compute | OCI container instance `forg3-staging-v13` (us-ashburn, `CI.Standard.A1.Flex` 1 OCPU / 2 GB), containers: `forg3-app` + `caddy`, public IP `150.136.187.228` |
 | Database | **Supabase managed Postgres**, project `forg3-staging` (ref `qmipdkaoptxsevlfkrfm`, us-east-1, free tier, daily backups). App connects as role `forg3_app` via session pooler `aws-0-us-east-1.pooler.supabase.com:5432`, schema `forg3` (NOT exposed via Supabase REST API) |
-| Image | `ghcr.io/nakedeyent-art/forg3:bec594b88809777fcbf31335c98c24a01f76171a` (multi-arch, published by CI on every push to main) |
-| Repo | github.com/nakedeyent-art/Forg3, default branch `main`, CI green on commit `bec594b Allow Firebase auth through CSP`; `publish-ghcr` completed in CI run `29602709342` |
-| Old staging | v7/v8/v9/v10 are deleted after quota cleanup. v11 remains active as rollback but is no longer the Cloudflare DNS target. Current live DNS target is v12 only. |
+| Image | `ghcr.io/nakedeyent-art/forg3:562df73ea3fcde277553356c9c65cc157a13fdc3` (multi-arch, published by CI on every push to main) |
+| Repo | github.com/nakedeyent-art/Forg3, default branch `main`, CI green on commit `562df73 Clarify signer email mismatch recovery`; `publish-ghcr` completed in CI run `29614142920` |
+| Old staging | v7/v8/v9/v10/v11 are deleted after quota cleanup. v12 remains active as rollback but is no longer the Cloudflare DNS target. Current live DNS target is v13 only. |
 | Local secrets/state | `~/Documents/Forg3/.deploy/` (git-ignored): OCIDs, device id, Supabase `forg3_app` password, encryption key, test artifacts |
 
 ## How current live staging works
 
 - Both containers share the pod network. `caddy` runs a generated Caddyfile for `forg3.nak3deye.com` with `tls internal` and proxies to `127.0.0.1:4127`. Cloudflare terminates the public certificate and connects to origin in `Full` mode. This avoids ephemeral-container Let's Encrypt duplicate-certificate rate limits.
-- The v12 app container boots with Postgres persistence and encrypted object storage; direct origin `/api/health` passes at `132.145.215.79`.
+- The v13 app container boots with Postgres persistence and encrypted object storage; direct origin `/api/health` passes at `150.136.187.228`.
 - Public health is live: `https://forg3.nak3deye.com/api/health` returns `{"ok":true,"service":"forg3",...}`.
 - If the instance is recreated, the IP changes. Update the proxied Cloudflare A record to the new public IP.
 - OCI tenancy limits are 0 for managed PostgreSQL **and** reserved public IPs, so `forg3.nak3deye.com` currently points at the instance's ordinary public IP. A limit-increase ticket would unlock reserved-IP stability.
@@ -38,7 +38,9 @@ Pone's combined signing packet was sent through the live production-domain stack
 
 ## End-to-end verification history
 
-Live v12 status (2026-07-17 UTC): `forg3.nak3deye.com` is proxied through Cloudflare to OCI v12 (`132.145.215.79`), public `/api/health` passes over HTTPS, and the public `/api/auth/firebase-config` response includes a CSP that allows Firebase/Google/Apple auth network and iframe routes. Creator unlimited access is configured through `FORG3_CREATOR_EMAILS`; API agents can use the secret override code only after normal auth/device trust and only when their email is listed in `FORG3_AGENT_OVERRIDE_EMAILS`. Pone's production-domain packet was sent earlier through Microsoft Graph; completion of that specific signed/sealed loop still depends on Pone opening and signing the packet.
+Live v13 status (2026-07-17 UTC): `forg3.nak3deye.com` is proxied through Cloudflare to OCI v13 (`150.136.187.228`), public `/api/health` passes over HTTPS, and the public bundle includes the signer recovery copy for wrong-recipient email sessions: "Use the recipient email" plus a "Switch account" action. The public `/api/auth/firebase-config` response still includes the CSP that allows Firebase/Google/Apple auth network and iframe routes. Creator unlimited access is configured through `FORG3_CREATOR_EMAILS`; API agents can use the secret override code only after normal auth/device trust and only when their email is listed in `FORG3_AGENT_OVERRIDE_EMAILS`. Pone's production-domain packet was sent earlier through Microsoft Graph; completion of that specific signed/sealed loop still depends on Pone opening and signing the packet.
+
+Signer mismatch incident/fix (2026-07-17 UTC): live data showed a newer packet `TERRY_97352` assigned to `sterry973@gmail.com` while the mobile browser session was logged in as `st@nak3deye.com`, which correctly produced the server-side recipient-only `404` but previously rendered as the vague "Link unavailable / Document not found for this signer." Commit `562df73` keeps the same privacy-preserving access denial but maps that case to "Use the recipient email", shows the current signed-in email, and offers "Switch account."
 
 Prior full signing loop on v4 (2026-07-14 UTC):
 
@@ -51,8 +53,9 @@ The signing-room PDF surface now uses a PDF.js canvas renderer (`src/components/
 Operational checks completed from this repo:
 
 - `npm run build:mobile:release`, `npm run typecheck`, `npm run build`, `npm run smoke`, `npm run verify:release-readiness`, and `npm audit --omit=dev` passed on 2026-07-16; audit reports 0 vulnerabilities. Release mobile assets verify against `https://forg3.nak3deye.com`. The override release was rechecked on 2026-07-17 with `npm run verify:release-readiness`.
-- Production monitor: Cloudflare proxied DNS for `forg3.nak3deye.com` points at v12 (`132.145.215.79` origin), public `/api/health` passes over HTTPS, and `npm run monitor:production` passes.
+- Production monitor: Cloudflare proxied DNS for `forg3.nak3deye.com` points at v13 (`150.136.187.228` origin), public `/api/health` passes over HTTPS, public bundle contains the signer mismatch recovery copy, and `npm run monitor:production` passes.
 - Firebase auth CSP fix (2026-07-17): v11 blocked Firebase Auth with `connect-src 'self'` / `frame-src 'self' data:`, which could surface as `auth/network-request-failed` for Google/Apple login. v12 allows `https://*.googleapis.com`, `https://*.firebaseapp.com`, `https://*.firebaseio.com`, `https://accounts.google.com`, and `https://appleid.apple.com` in the appropriate CSP directives. Verified direct-origin and public Cloudflare headers after cutover.
+- Signer mismatch UX fix (2026-07-17): `npm run typecheck`, `npm run build`, `npm run smoke` (48 checks), `VITE_API_BASE_URL=https://forg3.nak3deye.com npm run cap:sync`, remote CI run `29614142920`, `npm run monitor:production`, `npm run verify:release-readiness`, and `npm run verify:mobile-release` all passed after the v13 cutover.
 - `npm run store:screenshots` generated App Store/Play screenshots. `npm run appstore:screenshots` uploaded 8 iPhone 6.9 and 8 iPad 13 screenshots; all are asset-delivery `COMPLETE`.
 - `npm run appstore:products` configured Apple subscription group/product localizations, review screenshots, availability, and Apple-equalized pricing. `Forg3 Pro` and `Forg3 Business` are submitted with app version `1.0` and currently `WAITING_FOR_REVIEW`.
 - Firebase web app exists on Google project `bergen-project`; public config and local Admin credential are installed in `.env.local` / `.deploy/firebase/`. Firebase Auth is initialized, `forg3.nak3deye.com` is authorized, and Google/Apple providers are enabled. Google has client credentials present; Apple is enabled with Apple-specific config present but still needs real-device redirect testing before launch.
