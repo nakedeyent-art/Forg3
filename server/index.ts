@@ -195,9 +195,24 @@ app.use(
       directives: {
         defaultSrc: ["'self'"],
         baseUri: ["'self'"],
-        connectSrc: ["'self'", 'http://127.0.0.1:4127', 'http://localhost:4127'],
+        connectSrc: [
+          "'self'",
+          'http://127.0.0.1:4127',
+          'http://localhost:4127',
+          'https://*.googleapis.com',
+          'https://*.firebaseapp.com',
+          'https://*.firebaseio.com',
+          'https://accounts.google.com',
+          'https://appleid.apple.com'
+        ],
         frameAncestors: ["'none'"],
-        frameSrc: ["'self'", 'data:'],
+        frameSrc: [
+          "'self'",
+          'data:',
+          'https://*.firebaseapp.com',
+          'https://accounts.google.com',
+          'https://appleid.apple.com'
+        ],
         imgSrc: ["'self'", 'data:'],
         objectSrc: ["'none'"],
         scriptSrc: ["'self'"],
