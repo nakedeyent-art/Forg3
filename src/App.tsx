@@ -1843,6 +1843,19 @@ function SignerScreen({ access }: { access: SigningAccess }) {
     setDeviceVerified(false);
   }, [session?.uid, session?.email]);
 
+  const accessIssue = useMemo(() => describeSignerAccessIssue(message, session?.email), [message, session?.email]);
+
+  const handleSwitchAccount = () => {
+    clearStoredSession();
+    setSession(null);
+    setDeviceVerified(false);
+    setDocument(null);
+    setFileDataUrl('');
+    setSignatureDataUrl(null);
+    setSignedResult(null);
+    setMessage('');
+  };
+
   const handleSignIn = async (provider: 'google' | 'apple') => {
     setBusy(`auth-${provider}`);
     setMessage('');
@@ -1921,13 +1934,7 @@ function SignerScreen({ access }: { access: SigningAccess }) {
         <DeviceVerificationPanel
           session={session}
           onVerified={() => setDeviceVerified(true)}
-          onSignOut={() => {
-            clearStoredSession();
-            setSession(null);
-            setDeviceVerified(false);
-            setDocument(null);
-            setFileDataUrl('');
-          }}
+          onSignOut={handleSwitchAccount}
           context="document"
         />
       ) : busy === 'load' ? (
@@ -1957,8 +1964,20 @@ function SignerScreen({ access }: { access: SigningAccess }) {
       ) : message && !document ? (
         <section className="complete-panel error-panel">
           <AlertCircle size={42} />
-          <h1>Link unavailable</h1>
-          <p>{message}</p>
+          <h1>{accessIssue.title}</h1>
+          <p>{accessIssue.body}</p>
+          {accessIssue.showCurrentAccount && session?.email && (
+            <div className="signer-account-note">
+              <small>Signed in as</small>
+              <strong>{session.email}</strong>
+            </div>
+          )}
+          {accessIssue.canSwitchAccount && (
+            <button type="button" className="secondary-button" onClick={handleSwitchAccount}>
+              <LogOut size={17} />
+              Switch account
+            </button>
+          )}
         </section>
       ) : document ? (
         <main className="signer-workspace">
@@ -2234,6 +2253,45 @@ function formatDate(value: string) {
 
 function getErrorMessage(error: unknown) {
   return error instanceof Error ? error.message : 'Something went wrong.';
+}
+
+function describeSignerAccessIssue(message: string, sessionEmail?: string) {
+  const normalized = message.toLowerCase();
+
+  if (normalized.includes('document not found for this signer')) {
+    return {
+      title: 'Use the recipient email',
+      body:
+        'This invitation is assigned to a different verified email. Sign out, then sign in with the email address that received the Forg3 request.',
+      showCurrentAccount: Boolean(sessionEmail),
+      canSwitchAccount: true
+    };
+  }
+
+  if (normalized.includes('already complete') || normalized.includes('no longer active')) {
+    return {
+      title: 'Signing already complete',
+      body: 'This packet is already signed or sealed. Ask the sender for a fresh request if you still need access.',
+      showCurrentAccount: Boolean(sessionEmail),
+      canSwitchAccount: false
+    };
+  }
+
+  if (normalized.includes('expired')) {
+    return {
+      title: 'Link expired',
+      body: 'This signing link has expired. Ask the sender to issue a fresh Forg3 request.',
+      showCurrentAccount: Boolean(sessionEmail),
+      canSwitchAccount: false
+    };
+  }
+
+  return {
+    title: 'Link unavailable',
+    body: message || 'This signing link could not be opened.',
+    showCurrentAccount: Boolean(sessionEmail),
+    canSwitchAccount: false
+  };
 }
 
 function getEntitlementTitle(entitlement: SubscriptionEntitlement | null) {

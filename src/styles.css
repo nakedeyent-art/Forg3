@@ -1315,6 +1315,28 @@ input:focus {
   color: #c8513a;
 }
 
+.signer-account-note {
+  width: min(360px, 100%);
+  display: grid;
+  gap: 4px;
+  justify-items: center;
+  padding: 10px 12px;
+  border: 1px solid #dce7ea;
+  border-radius: 8px;
+  background: #f7f9fa;
+  color: #2f3e48;
+}
+
+.signer-account-note small {
+  color: #667783;
+  font-weight: 700;
+}
+
+.signer-account-note strong {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
 .spin {
   animation: spin 0.9s linear infinite;
 }
