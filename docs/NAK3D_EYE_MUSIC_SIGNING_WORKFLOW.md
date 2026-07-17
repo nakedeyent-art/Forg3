@@ -7,6 +7,7 @@ Use Forg3 Sign as the first-party replacement for the DocuSign send path.
 - Configure the creator account in `FORG3_CREATOR_EMAILS`.
 - For local demo testing, set `VITE_DEV_OWNER_EMAIL` to the same creator email.
 - Creator accounts get unlimited access without a paid subscription.
+- Approved API agents can use the secret agent override only after normal login/device verification and only for emails in `FORG3_AGENT_OVERRIDE_EMAILS` or, by default, `FORG3_CREATOR_EMAILS`. Send the raw code as `X-Forg3-Agent-Override`; the server should store only `FORG3_AGENT_OVERRIDE_CODE_SHA256`.
 - Paid customer unlimited access is reserved for the highest tier, Forg3 Business.
 - Lower tiers can create packets only within their paid model; do not label them unlimited.
 

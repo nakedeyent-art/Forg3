@@ -804,7 +804,7 @@ app.get('/api/documents', requireOwner, (request, response) => {
 
 app.get('/api/subscription', requireOwner, (request, response) => {
   response.json({
-    entitlement: getSubscriptionEntitlement(request.owner!.email),
+    entitlement: getRequestEntitlementContext(request.owner!.email, request).entitlement,
     plans: subscriptionPlans
   });
 });
@@ -1082,7 +1082,7 @@ app.post('/api/subscription/cancel', requireOwner, (request, response) => {
 app.get('/api/features', requireOwner, (request, response) => {
   response.json({
     featureStatus: getFeatureStatus(),
-    capabilities: getCapabilitiesForOwner(request.owner!.email)
+    capabilities: getCapabilitiesForOwner(request.owner!.email, request)
   });
 });
 
@@ -1263,7 +1263,8 @@ app.post('/api/documents', requireOwner, async (request, response) => {
     return;
   }
 
-  const entitlement = getSubscriptionEntitlement(owner.email);
+  const entitlementContext = getRequestEntitlementContext(owner.email, request);
+  const entitlement = entitlementContext.entitlement;
   const creationBlock = getDocumentCreationBlock(owner.email, entitlement);
 
   if (creationBlock) {
@@ -1284,7 +1285,7 @@ app.post('/api/documents', requireOwner, async (request, response) => {
     return;
   }
 
-  const capabilities = getCapabilitiesForOwner(owner.email);
+  const capabilities = getCapabilitiesForOwner(owner.email, request);
   if (rawSigners.length > 1 && !capabilities.multiSigner) {
     response.status(402).json({ error: 'Multi-signer routing requires Forg3 Pro or Business.' });
     return;
@@ -1342,10 +1343,14 @@ app.post('/api/documents', requireOwner, async (request, response) => {
     createdAt: now.toISOString(),
     expiresAt,
     status: 'sent',
-    tokenHash: links[0].signer.tokenHash
+    tokenHash: links[0].signer.tokenHash,
+    entitlementOverride: entitlementContext.agentOverrideUsed ? 'agent_override' : undefined
   };
 
   store.create(document);
+  if (entitlementContext.agentOverrideUsed) {
+    appendAgentOverrideAudit(owner.email, 'create a signing packet', document.id);
+  }
   store.appendAuditEvent({
     ownerEmail: owner.email,
     actorEmail: owner.email,
@@ -1384,13 +1389,14 @@ app.post('/api/documents', requireOwner, async (request, response) => {
 app.post('/api/documents/:id/rotate-link', requireOwner, (request, response) => {
   const owner = request.owner!;
   const document = store.get(String(request.params.id));
+  const entitlementContext = getRequestEntitlementContext(owner.email, request);
 
   if (!document || !sameEmail(document.ownerEmail, owner.email)) {
     response.status(404).json({ error: 'Document not found.' });
     return;
   }
 
-  if (!requireSigningLinkEntitlement(owner.email, response)) {
+  if (!requireSigningLinkEntitlement(owner.email, response, entitlementContext)) {
     return;
   }
 
@@ -1435,18 +1441,22 @@ app.post('/api/documents/:id/rotate-link', requireOwner, (request, response) => 
     message: `Signing links were rotated for "${document.title}".`,
     documentId: document.id
   });
+  if (entitlementContext.agentOverrideUsed) {
+    appendAgentOverrideAudit(owner.email, 'rotate signing links', document.id);
+  }
 
   response.json({ document: toSummary(next!), signingPath: signingLinks[0]?.signingPath, signingLinks });
 });
 
 app.post('/api/documents/:id/remind', requireOwner, async (request, response) => {
   const owner = request.owner!;
+  const entitlementContext = getRequestEntitlementContext(owner.email, request);
 
-  if (!requireSigningLinkEntitlement(owner.email, response)) {
+  if (!requireSigningLinkEntitlement(owner.email, response, entitlementContext)) {
     return;
   }
 
-  const gate = requireCapability(owner.email, 'reminders', response);
+  const gate = requireCapability(owner.email, 'reminders', response, request);
 
   if (!gate) {
     return;
@@ -1515,6 +1525,9 @@ app.post('/api/documents/:id/remind', requireOwner, async (request, response) =>
     message: `Reminders were sent for "${document.title}".`,
     documentId: document.id
   });
+  if (entitlementContext.agentOverrideUsed) {
+    appendAgentOverrideAudit(owner.email, 'send reminders', document.id);
+  }
 
   response.status(201).json({ deliveries, signingLinks });
 });
@@ -2778,6 +2791,7 @@ function redactConfiguredSecrets(value: string) {
     process.env.MICROSOFT_GRAPH_CLIENT_SECRET,
     process.env.MICROSOFT_GRAPH_CLIENT_ID,
     process.env.MICROSOFT_GRAPH_TENANT_ID,
+    process.env.FORG3_AGENT_OVERRIDE_CODE,
     process.env.SMTP_PASS,
     process.env.SMTP_PASSWORD
   ]) {
@@ -2790,6 +2804,28 @@ function redactConfiguredSecrets(value: string) {
 
 function getErrorMessage(error: unknown) {
   return error instanceof Error ? error.message : String(error);
+}
+
+interface EntitlementContext {
+  entitlement: SubscriptionEntitlement;
+  agentOverrideUsed: boolean;
+}
+
+function getRequestEntitlementContext(ownerEmail: string, request: Request): EntitlementContext {
+  const entitlement = getSubscriptionEntitlement(ownerEmail);
+
+  if (entitlement.active) {
+    return { entitlement, agentOverrideUsed: false };
+  }
+
+  if (!hasValidAgentOverride(ownerEmail, request)) {
+    return { entitlement, agentOverrideUsed: false };
+  }
+
+  return {
+    entitlement: getAgentOverrideEntitlement(ownerEmail),
+    agentOverrideUsed: true
+  };
 }
 
 function getSubscriptionEntitlement(ownerEmail: string): SubscriptionEntitlement {
@@ -2807,6 +2843,7 @@ function getSubscriptionEntitlement(ownerEmail: string): SubscriptionEntitlement
       accessKind: 'creator_unlimited',
       unlimitedAccess: true,
       creatorAccess: true,
+      agentOverrideAccess: false,
       packetLimit: null
     };
   }
@@ -2822,6 +2859,7 @@ function getSubscriptionEntitlement(ownerEmail: string): SubscriptionEntitlement
       accessKind: 'inactive',
       unlimitedAccess: false,
       creatorAccess: false,
+      agentOverrideAccess: false,
       packetLimit: null
     };
   }
@@ -2841,6 +2879,7 @@ function getSubscriptionEntitlement(ownerEmail: string): SubscriptionEntitlement
       accessKind: 'inactive',
       unlimitedAccess: false,
       creatorAccess: false,
+      agentOverrideAccess: false,
       packetLimit: plan?.packetLimit ?? null
     };
   }
@@ -2856,6 +2895,7 @@ function getSubscriptionEntitlement(ownerEmail: string): SubscriptionEntitlement
       accessKind: 'inactive',
       unlimitedAccess: false,
       creatorAccess: false,
+      agentOverrideAccess: false,
       packetLimit: plan?.packetLimit ?? null
     };
   }
@@ -2869,15 +2909,32 @@ function getSubscriptionEntitlement(ownerEmail: string): SubscriptionEntitlement
     accessKind,
     unlimitedAccess,
     creatorAccess: false,
+    agentOverrideAccess: false,
     packetLimit: plan?.packetLimit ?? null
   };
 }
 
-function getCapabilitiesForOwner(ownerEmail: string) {
-  const entitlement = getSubscriptionEntitlement(ownerEmail);
+function getAgentOverrideEntitlement(ownerEmail: string): SubscriptionEntitlement {
+  return {
+    active: true,
+    status: 'active',
+    plan: null,
+    subscription: null,
+    usageSummary: getUsageSummary(ownerEmail),
+    reason: 'Agent override access is active for this approved account.',
+    accessKind: 'agent_override',
+    unlimitedAccess: true,
+    creatorAccess: false,
+    agentOverrideAccess: true,
+    packetLimit: null
+  };
+}
+
+function getCapabilitiesForOwner(ownerEmail: string, request?: Request) {
+  const entitlement = request ? getRequestEntitlementContext(ownerEmail, request).entitlement : getSubscriptionEntitlement(ownerEmail);
   const planId = entitlement.plan?.id;
 
-  if (entitlement.creatorAccess) {
+  if (entitlement.creatorAccess || entitlement.agentOverrideAccess) {
     return getCapabilitiesForPlan(highestTierPlanId, true);
   }
 
@@ -2920,8 +2977,8 @@ function getSigningLinkEntitlementBlock(entitlement: SubscriptionEntitlement) {
   return null;
 }
 
-function requireSigningLinkEntitlement(ownerEmail: string, response: Response) {
-  const entitlement = getSubscriptionEntitlement(ownerEmail);
+function requireSigningLinkEntitlement(ownerEmail: string, response: Response, context?: EntitlementContext) {
+  const entitlement = context?.entitlement || getSubscriptionEntitlement(ownerEmail);
   const block = getSigningLinkEntitlementBlock(entitlement);
 
   if (block) {
@@ -2953,9 +3010,10 @@ function getCapabilitiesForPlan(planId?: PlanId | null, unlimitedAccess = false)
 function requireCapability(
   ownerEmail: string,
   capability: keyof ReturnType<typeof getCapabilitiesForPlan>,
-  response: Response
+  response: Response,
+  request?: Request
 ) {
-  const capabilities = getCapabilitiesForOwner(ownerEmail);
+  const capabilities = getCapabilitiesForOwner(ownerEmail, request);
 
   if (!capabilities[capability]) {
     response.status(402).json({ error: `${capability} is not available on the current Forg3 tier.` });
@@ -3243,6 +3301,10 @@ function canCompleteSignature(document: SigningDocument, response: Response) {
     return true;
   }
 
+  if (document.entitlementOverride === 'agent_override' && isAgentOverrideEmail(document.ownerEmail)) {
+    return true;
+  }
+
   if (getSigningEntitlementPolicy() === 'bill_metered' && entitlement.plan?.billingModel === 'metered') {
     return true;
   }
@@ -3271,6 +3333,10 @@ function sha256DataUrl(dataUrl: string) {
   const commaIndex = dataUrl.indexOf(',');
   const base64 = commaIndex >= 0 ? dataUrl.slice(commaIndex + 1) : dataUrl;
   return crypto.createHash('sha256').update(Buffer.from(base64, 'base64')).digest('hex');
+}
+
+function sha256Text(value: string) {
+  return crypto.createHash('sha256').update(value, 'utf8').digest('hex');
 }
 
 function dataUrlByteLength(dataUrl: string) {
@@ -3322,6 +3388,62 @@ function sameEmail(left: string, right: string) {
 
 function isCreatorEmail(ownerEmail: string) {
   return getCreatorEmailSet().has(ownerEmail.trim().toLowerCase());
+}
+
+function hasValidAgentOverride(ownerEmail: string, request: Request) {
+  if (!isAgentOverrideEmail(ownerEmail)) {
+    return false;
+  }
+
+  const suppliedCode = getAgentOverrideCode(request);
+  if (!suppliedCode) {
+    return false;
+  }
+
+  const configuredHash = String(process.env.FORG3_AGENT_OVERRIDE_CODE_SHA256 || '').trim().toLowerCase();
+  if (configuredHash) {
+    return constantTimeStringEqual(sha256Text(suppliedCode), configuredHash);
+  }
+
+  const configuredCode = String(process.env.FORG3_AGENT_OVERRIDE_CODE || '').trim();
+  return Boolean(configuredCode) && constantTimeStringEqual(suppliedCode, configuredCode);
+}
+
+function getAgentOverrideCode(request: Request) {
+  const headerCode =
+    request.get('x-forg3-agent-override') ||
+    request.get('x-forg3-agent-override-code') ||
+    request.get('x-agent-override-code') ||
+    '';
+  const bodyCode = typeof request.body?.agentOverrideCode === 'string' ? request.body.agentOverrideCode : '';
+
+  return sanitizeEnvValue(headerCode || bodyCode, 256);
+}
+
+function isAgentOverrideEmail(ownerEmail: string) {
+  return getAgentOverrideEmailSet().has(ownerEmail.trim().toLowerCase());
+}
+
+function getAgentOverrideEmailSet() {
+  const configured = String(process.env.FORG3_AGENT_OVERRIDE_EMAILS || '').trim();
+  const source = configured || process.env.FORG3_CREATOR_EMAILS || '';
+
+  return new Set(
+    source
+      .split(',')
+      .map((email) => email.trim().toLowerCase())
+      .filter(Boolean)
+  );
+}
+
+function appendAgentOverrideAudit(ownerEmail: string, action: string, documentId?: string) {
+  store.appendAuditEvent({
+    ownerEmail,
+    actorEmail: ownerEmail,
+    type: 'agent.override_used',
+    message: `Agent override was used to ${action}.`,
+    documentId
+  });
 }
 
 function getCreatorEmailSet() {

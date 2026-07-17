@@ -42,6 +42,8 @@ Recommended:
 | `DATABASE_SSL` | auto | `disable` for same-network Postgres, `no-verify` for managed Postgres with self-signed chains |
 | `CORS_ORIGINS` | none | Extra allowed origins (only needed if the web client is hosted on a different origin) |
 | `FORG3_CREATOR_EMAILS` | none | Comma-separated accounts with creator unlimited access |
+| `FORG3_AGENT_OVERRIDE_EMAILS` | `FORG3_CREATOR_EMAILS` | Comma-separated authenticated accounts allowed to use the API-only agent override code |
+| `FORG3_AGENT_OVERRIDE_CODE_SHA256` / `FORG3_AGENT_OVERRIDE_CODE` | none | Optional API-only sender override. Prefer the SHA-256 hash; agents send the raw code in `X-Forg3-Agent-Override` only when acting for an approved account. |
 | `FORG3_REVIEW_ACCESS_EMAIL` / `FORG3_REVIEW_ACCESS_CODE` | none | Optional Apple/Google review account and reusable six-digit code; pair the email with `FORG3_CREATOR_EMAILS` so reviewers can test paid sender flows without a purchase |
 | `FORG3_AUTH_CODE_LIMIT` / `FORG3_AUTH_VERIFY_LIMIT` / `FORG3_CODE_RESEND_COOLDOWN_SECONDS` | 10 / 40 / 30 | Login-code abuse protection |
 
@@ -128,6 +130,7 @@ pending Postgres writes before exiting.
 - [ ] Boot log shows `storage: postgres, encrypted at rest: yes`.
 - [ ] Email-code login works end to end (code arrives from your provider).
 - [ ] Create → sign → download a test packet; verify the audit certificate page.
+- [ ] If using agent override, verify an approved authenticated account can send with `X-Forg3-Agent-Override`, an unapproved/wrong code is blocked, and the audit log records `agent.override_used`.
 - [ ] `#/settings` loads; enroll TOTP on the owner account.
 - [ ] `#/terms` and `#/privacy` render.
 - [ ] Backups scheduled (`pg_dump` cron or managed snapshots).

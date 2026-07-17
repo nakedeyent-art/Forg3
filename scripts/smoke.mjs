@@ -15,6 +15,7 @@ const ownerEmail = 'smoke-owner@forg3.test';
 const signerEmail = 'smoke-signer@forg3.test';
 const reviewEmail = 'store-review@forg3.test';
 const reviewCode = '246810';
+const agentOverrideCode = 'smoke-agent-override';
 
 const serverEntry = fs.existsSync(path.resolve('dist-server/server/index.js'))
   ? ['dist-server/server/index.js']
@@ -29,6 +30,8 @@ const server = spawn(process.execPath, serverEntry, {
     FORG3_OBJECT_STORE_PATH: path.join(dataDir, 'objects'),
     FORG3_DEVICE_2FA: 'true',
     FORG3_CREATOR_EMAILS: reviewEmail,
+    FORG3_AGENT_OVERRIDE_EMAILS: ownerEmail,
+    FORG3_AGENT_OVERRIDE_CODE_SHA256: crypto.createHash('sha256').update(agentOverrideCode).digest('hex'),
     FORG3_REVIEW_ACCESS_EMAIL: reviewEmail,
     FORG3_REVIEW_ACCESS_CODE: reviewCode,
     EMAIL_PROVIDER: '',
@@ -100,6 +103,83 @@ async function run() {
   );
   check('unpaid owner cannot create signing links', unpaidCreate.status === 402);
 
+  const invalidOverrideCreate = await api(
+    'POST',
+    '/api/documents',
+    {
+      title: 'Invalid Override Smoke Agreement',
+      fileName: 'invalid-override-smoke.pdf',
+      fileType: 'application/pdf',
+      fileDataUrl: pdfDataUrl,
+      signers: [{ name: 'Smoke Signer', email: signerEmail }],
+      expiresInHours: 24
+    },
+    ownerToken,
+    { 'x-forg3-agent-override': 'wrong-code' }
+  );
+  check('wrong agent override code cannot create signing links', invalidOverrideCreate.status === 402);
+
+  const agentHeaders = { 'x-forg3-agent-override': agentOverrideCode };
+  const agentEntitlement = await api('GET', '/api/subscription', undefined, ownerToken, agentHeaders);
+  check(
+    'agent override exposes active override entitlement for approved owner',
+    agentEntitlement.status === 200 && agentEntitlement.body.entitlement?.agentOverrideAccess === true
+  );
+  const agentFeatures = await api('GET', '/api/features', undefined, ownerToken, agentHeaders);
+  check('agent override grants highest-tier send capabilities', agentFeatures.status === 200 && agentFeatures.body.capabilities?.reminders === true);
+
+  const overrideCreated = await api(
+    'POST',
+    '/api/documents',
+    {
+      title: 'Agent Override Smoke Agreement',
+      fileName: 'agent-override-smoke.pdf',
+      fileType: 'application/pdf',
+      fileDataUrl: pdfDataUrl,
+      signers: [{ name: 'Smoke Signer', email: signerEmail }],
+      expiresInHours: 24
+    },
+    ownerToken,
+    agentHeaders
+  );
+  check('approved agent override can create a signing link without a subscription', overrideCreated.status === 201 && createdLinkCount(overrideCreated.body) === 1);
+
+  const overrideMultiSigner = await api(
+    'POST',
+    '/api/documents',
+    {
+      title: 'Agent Override Multi Signer Agreement',
+      fileName: 'agent-override-multi-smoke.pdf',
+      fileType: 'application/pdf',
+      fileDataUrl: pdfDataUrl,
+      signers: [
+        { name: 'Smoke Signer', email: signerEmail },
+        { name: 'Smoke Co Signer', email: 'smoke-cosigner@forg3.test' }
+      ],
+      expiresInHours: 24
+    },
+    ownerToken,
+    agentHeaders
+  );
+  check('agent override grants multi-signer capability', overrideMultiSigner.status === 201 && createdLinkCount(overrideMultiSigner.body) === 2);
+
+  const signerToken = await emailLogin(signerEmail, 'Smoke Signer');
+  const signerSubscription = await api('GET', '/api/subscription', undefined, signerToken);
+  check('free signer account has no active sender entitlement', signerSubscription.status === 200 && signerSubscription.body.entitlement?.active === false);
+
+  const overrideSignerId = overrideCreated.body.signingLinks?.[0]?.signerId || 'missing-signer';
+  const overrideSigned = await api(
+    'POST',
+    `/api/signer/documents/${overrideCreated.body.document?.id || 'missing-document'}/${overrideSignerId}/sign`,
+    {
+      signatureDataUrl: `data:image/png;base64,${buildTinyPngBase64()}`,
+      signerNameConfirmation: 'Smoke Signer',
+      consentText: 'I agree to sign electronically.'
+    },
+    signerToken
+  );
+  check('recipient can complete an override-created packet while owner is unpaid', overrideSigned.status === 200 && typeof overrideSigned.body.signedFileDataUrl === 'string');
+
   // Session management (added in the hardening sprint).
   const sessions = await api('GET', '/api/auth/sessions', undefined, ownerToken);
   check('sessions list returns the active session', sessions.status === 200 && Array.isArray(sessions.body.sessions) && sessions.body.sessions.length >= 1);
@@ -108,6 +188,7 @@ async function run() {
   const audit = await api('GET', '/api/audit', undefined, ownerToken);
   check('audit log is readable and owner scoped', audit.status === 200 && Array.isArray(audit.body.events));
   check('audit log records the login event', audit.body.events.some((event) => event.type === 'auth.login'));
+  check('audit log records agent override usage', audit.body.events.some((event) => event.type === 'agent.override_used'));
 
   // Account export.
   const exported = await api('GET', '/api/account/export', undefined, ownerToken);
@@ -169,10 +250,6 @@ async function run() {
   check('reactivated monthly subscription restores entitlement', reactivated.status === 201 && reactivated.body.entitlement?.active === true);
 
   // The assigned recipient must authenticate with the matching email to view.
-  const signerToken = await emailLogin(signerEmail, 'Smoke Signer');
-  const signerSubscription = await api('GET', '/api/subscription', undefined, signerToken);
-  check('free signer account has no active sender entitlement', signerSubscription.status === 200 && signerSubscription.body.entitlement?.active === false);
-
   const signerId = created.body.signingLinks[0].signerId;
   const inbox = await api('GET', '/api/signer/documents', undefined, signerToken);
   check('signer inbox lists the assigned document', inbox.status === 200 && inbox.body.documents.some((doc) => doc.id === documentId));
@@ -290,13 +367,14 @@ function report() {
   }
 }
 
-async function api(method, apiPath, body, token) {
+async function api(method, apiPath, body, token, extraHeaders = {}) {
   const response = await fetch(`${baseUrl}${apiPath}`, {
     method,
     headers: {
       'Content-Type': 'application/json',
       'x-forg3-device-id': deviceId,
-      ...(token ? { Authorization: `Bearer ${token}` } : {})
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...extraHeaders
     },
     body: body === undefined ? undefined : JSON.stringify(body)
   });

@@ -4,7 +4,7 @@ export type PlanId = 'forg3_pay_per_signature_annual' | 'forg3_pro_monthly' | 'f
 export type BillingProvider = 'apple_app_store' | 'google_play' | 'stripe' | 'demo';
 export type SubscriptionStatus = 'inactive' | 'active' | 'past_due' | 'canceled' | 'pending_verification';
 export type BillingModel = 'flat' | 'metered';
-export type AccountAccessKind = 'inactive' | 'paid' | 'highest_tier' | 'creator_unlimited';
+export type AccountAccessKind = 'inactive' | 'paid' | 'highest_tier' | 'creator_unlimited' | 'agent_override';
 export type SignerStatus = 'sent' | 'signed';
 export type EmailDeliveryStatus = 'logged' | 'provider_required' | 'sent' | 'failed';
 export type EmailDeliveryKind = 'signing_link' | 'reminder' | 'signed_copy';
@@ -127,6 +127,7 @@ export interface SubscriptionEntitlement {
   accessKind: AccountAccessKind;
   unlimitedAccess: boolean;
   creatorAccess: boolean;
+  agentOverrideAccess?: boolean;
   packetLimit: number | null;
 }
 
