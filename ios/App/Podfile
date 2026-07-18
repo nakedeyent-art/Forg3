@@ -33,8 +33,10 @@ strip_forg3_attrs() {
     'com.apple.fileprovider.dir#N' \
     com.apple.quarantine
   do
-    xattr -d "$attr" "$target" 2>/dev/null || true
+    /usr/bin/find "$target" -depth -exec /usr/bin/xattr -d "$attr" {} + 2>/dev/null || true
   done
+  /usr/bin/xattr -cr "$target" 2>/dev/null || true
+  /usr/bin/find "$target" -depth -exec /usr/bin/xattr -c {} + 2>/dev/null || true
 }
 SCRIPT
 
@@ -57,12 +59,22 @@ SCRIPT
   frameworks_script = File.join(__dir__, 'Pods', 'Target Support Files', 'Pods-App', 'Pods-App-frameworks.sh')
   if File.exist?(frameworks_script)
     contents = File.read(frameworks_script)
+    contents = contents.gsub(
+      /strip_forg3_attrs\(\) \{.*?\n\}\n\n# Signs a framework with the provided identity\n/m,
+      "#{strip_attrs_script}\n# Signs a framework with the provided identity\n"
+    )
+    unless contents.include?('strip_forg3_attrs()')
+      contents = contents.sub(
+        "# Signs a framework with the provided identity\n",
+        "#{strip_attrs_script}\n# Signs a framework with the provided identity\n"
+      )
+    end
     unless contents.include?('strip_forg3_attrs "$1"')
       contents = contents.sub(
         "# Signs a framework with the provided identity\ncode_sign_if_enabled() {",
-        "#{strip_attrs_script}\n# Signs a framework with the provided identity\ncode_sign_if_enabled() {\n  strip_forg3_attrs \"$1\""
+        "# Signs a framework with the provided identity\ncode_sign_if_enabled() {\n  strip_forg3_attrs \"$1\""
       )
-      File.write(frameworks_script, contents)
     end
+    File.write(frameworks_script, contents)
   end
 end
