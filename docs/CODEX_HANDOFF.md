@@ -1,23 +1,23 @@
 # Codex Handoff — Forg3 Sign
 
-_Last updated: 2026-07-18 UTC (Codex session: v14 redeploy, multi-file document signing support)_
+_Last updated: 2026-07-18 UTC (Codex session: v15 redeploy, multi-file document signing support)_
 
 ## Current live state
 
 | Thing | Value |
 | --- | --- |
-| Staging URL | **https://forg3.nak3deye.com** live. Cloudflare DNS has a proxied A record `forg3.nak3deye.com -> 150.136.165.165`; Cloudflare SSL/TLS mode is `Full`. |
-| Compute | OCI container instance `forg3-staging-v14` (us-ashburn, `CI.Standard.A1.Flex` 1 OCPU / 2 GB), containers: `forg3-app` + `caddy`, public IP `150.136.165.165` |
+| Staging URL | **https://forg3.nak3deye.com** live. Cloudflare DNS has a proxied A record `forg3.nak3deye.com -> 129.153.239.91`; Cloudflare SSL/TLS mode is `Full`. |
+| Compute | OCI container instance `forg3-staging-v15` (us-ashburn, `CI.Standard.A1.Flex` 1 OCPU / 2 GB), containers: `forg3-app` + `caddy`, public IP `129.153.239.91` |
 | Database | **Supabase managed Postgres**, project `forg3-staging` (ref `qmipdkaoptxsevlfkrfm`, us-east-1, free tier, daily backups). App connects as role `forg3_app` via session pooler `aws-0-us-east-1.pooler.supabase.com:5432`, schema `forg3` (NOT exposed via Supabase REST API) |
-| Image | `ghcr.io/nakedeyent-art/forg3:dba7ff239415c5d31e77a6e7549a8d32f5d2d75d` (multi-arch, published by CI on every push to main) |
-| Repo | github.com/nakedeyent-art/Forg3, default branch `main`, CI green on commit `dba7ff2 Support signing non-PDF document files`; `publish-ghcr` completed in CI run `29630716059` |
-| Old staging | v7/v8/v9/v10/v11/v12 are deleted after quota cleanup. v13 remains active as temporary rollback but is no longer the Cloudflare DNS target. Current live DNS target is v14 only. |
+| Image | `ghcr.io/nakedeyent-art/forg3:b4333ba1f94c30f44e20fa266f92c34004dc751d` (multi-arch, published by CI on every push to main) |
+| Repo | github.com/nakedeyent-art/Forg3, default branch `main`, CI green on commit `b4333ba Align document signing release copy`; `publish-ghcr` completed in CI run `29631698914` |
+| Old staging | v7/v8/v9/v10/v11/v12/v13 are deleted after quota cleanup. v14 remains active as temporary rollback but is no longer the Cloudflare DNS target. Current live DNS target is v15 only. |
 | Local secrets/state | `~/Documents/Forg3/.deploy/` (git-ignored): OCIDs, device id, Supabase `forg3_app` password, encryption key, test artifacts |
 
 ## How current live staging works
 
 - Both containers share the pod network. `caddy` runs a generated Caddyfile for `forg3.nak3deye.com` with `tls internal` and proxies to `127.0.0.1:4127`. Cloudflare terminates the public certificate and connects to origin in `Full` mode. This avoids ephemeral-container Let's Encrypt duplicate-certificate rate limits.
-- The v14 app container boots with Postgres persistence and encrypted object storage; direct origin `/api/health` passes at `150.136.165.165`.
+- The v15 app container boots with Postgres persistence and encrypted object storage; direct origin `/api/health` passes at `129.153.239.91`.
 - Public health is live: `https://forg3.nak3deye.com/api/health` returns `{"ok":true,"service":"forg3",...}`.
 - If the instance is recreated, the IP changes. Update the proxied Cloudflare A record to the new public IP.
 - OCI tenancy limits are 0 for managed PostgreSQL **and** reserved public IPs, so `forg3.nak3deye.com` currently points at the instance's ordinary public IP. A limit-increase ticket would unlock reserved-IP stability.
@@ -38,9 +38,9 @@ Pone's combined signing packet was sent through the live production-domain stack
 
 ## End-to-end verification history
 
-Live v14 status (2026-07-18 UTC): `forg3.nak3deye.com` is proxied through Cloudflare to OCI v14 (`150.136.165.165`), public `/api/health` passes over HTTPS, and the public bundle includes the new document upload UI for PDF, Word, Excel, PowerPoint, CSV/text, and RTF. PDFs are stamped directly; non-PDF originals are preserved unchanged and sealed into a signed certificate PDF that includes the original file name/type/hash, signer evidence, and audit certificate. The public `/api/auth/firebase-config` response still includes the CSP that allows Firebase/Google/Apple auth network and iframe routes. Creator unlimited access is configured through `FORG3_CREATOR_EMAILS`; API agents can use the secret override code only after normal auth/device trust and only when their email is listed in `FORG3_AGENT_OVERRIDE_EMAILS`. Pone's production-domain packet was sent earlier through Microsoft Graph; completion of that specific signed/sealed loop still depends on Pone opening and signing the packet.
+Live v15 status (2026-07-18 UTC): `forg3.nak3deye.com` is proxied through Cloudflare to OCI v15 (`129.153.239.91`), public `/api/health` passes over HTTPS, and the public bundle includes the new document upload UI for PDF, Word, Excel, PowerPoint, CSV/text, and RTF. PDFs are stamped directly; non-PDF originals are preserved unchanged and sealed into a signed certificate PDF that includes the original file name/type/hash, signer evidence, and audit certificate. The public `/api/auth/firebase-config` response still includes the CSP that allows Firebase/Google/Apple auth network and iframe routes. Creator unlimited access is configured through `FORG3_CREATOR_EMAILS`; API agents can use the secret override code only after normal auth/device trust and only when their email is listed in `FORG3_AGENT_OVERRIDE_EMAILS`. Pone's production-domain packet was sent earlier through Microsoft Graph; completion of that specific signed/sealed loop still depends on Pone opening and signing the packet.
 
-Public multi-file verification (2026-07-18 UTC): through `https://forg3.nak3deye.com`, Codex completed email-code login → device 2FA → active creator entitlement check → Word-style `.docx` upload → email delivery record creation → assigned signer room open → PNG signature submit → owner signed certificate PDF download. Public smoke artifact: `.deploy/forg3-public-v14-word-smoke.json`; certificate PDF: `.deploy/forg3-public-v14-word-smoke.pdf`.
+Public multi-file verification (2026-07-18 UTC): through `https://forg3.nak3deye.com`, Codex completed email-code login → device 2FA → active creator entitlement check → Word-style `.docx` upload → email delivery record creation → assigned signer room open → PNG signature submit → owner signed certificate PDF download. Public smoke artifact: `.deploy/forg3-public-v15-word-smoke.json`; certificate PDF: `.deploy/forg3-public-v15-word-smoke.pdf`.
 
 Signer mismatch incident/fix (2026-07-17 UTC): live data showed a newer packet `TERRY_97352` assigned to `sterry973@gmail.com` while the mobile browser session was logged in as `st@nak3deye.com`, which correctly produced the server-side recipient-only `404` but previously rendered as the vague "Link unavailable / Document not found for this signer." Commit `562df73` keeps the same privacy-preserving access denial but maps that case to "Use the recipient email", shows the current signed-in email, and offers "Switch account."
 
@@ -55,10 +55,10 @@ The signing-room PDF surface now uses a PDF.js canvas renderer (`src/components/
 Operational checks completed from this repo:
 
 - `npm run build:mobile:release`, `npm run typecheck`, `npm run build`, `npm run smoke`, `npm run verify:release-readiness`, and `npm audit --omit=dev` passed on 2026-07-16; audit reports 0 vulnerabilities. Release mobile assets verify against `https://forg3.nak3deye.com`. The override release was rechecked on 2026-07-17 with `npm run verify:release-readiness`.
-- Production monitor: Cloudflare proxied DNS for `forg3.nak3deye.com` points at v14 (`150.136.165.165` origin), public `/api/health` passes over HTTPS, public bundle contains the multi-file document upload UI, and `npm run monitor:production` passes.
+- Production monitor: Cloudflare proxied DNS for `forg3.nak3deye.com` points at v15 (`129.153.239.91` origin), public `/api/health` passes over HTTPS, public bundle contains the multi-file document upload UI, and `npm run monitor:production` passes.
 - Firebase auth CSP fix (2026-07-17): v11 blocked Firebase Auth with `connect-src 'self'` / `frame-src 'self' data:`, which could surface as `auth/network-request-failed` for Google/Apple login. v12 allows `https://*.googleapis.com`, `https://*.firebaseapp.com`, `https://*.firebaseio.com`, `https://accounts.google.com`, and `https://appleid.apple.com` in the appropriate CSP directives. Verified direct-origin and public Cloudflare headers after cutover.
 - Signer mismatch UX fix (2026-07-17): `npm run typecheck`, `npm run build`, `npm run smoke` (48 checks), `VITE_API_BASE_URL=https://forg3.nak3deye.com npm run cap:sync`, remote CI run `29614142920`, `npm run monitor:production`, `npm run verify:release-readiness`, and `npm run verify:mobile-release` all passed after the v13 cutover.
-- Multi-file document signing fix (2026-07-18): `npm run typecheck`, `npm run build`, `npm run smoke` (52 checks), `VITE_API_BASE_URL=https://forg3.nak3deye.com npm run cap:sync`, `npm run verify:mobile-release`, and remote CI run `29630716059` all passed on commit `dba7ff2`. OCI v14 was deployed from the GHCR image, Cloudflare DNS was cut over to `150.136.165.165`, public bundle checks confirmed the document upload UI, and the public Word-file signing smoke completed through `https://forg3.nak3deye.com`.
+- Multi-file document signing fix (2026-07-18): `npm run typecheck`, `npm run build`, `npm run smoke` (52 checks), `VITE_API_BASE_URL=https://forg3.nak3deye.com npm run cap:sync`, `npm run verify:mobile-release`, and remote CI runs `29630716059` / `29631698914` all passed. OCI v15 was deployed from the GHCR image, Cloudflare DNS was cut over to `129.153.239.91`, public bundle checks confirmed the document upload UI, and the public Word-file signing smoke completed through `https://forg3.nak3deye.com`.
 - `npm run store:screenshots` generated App Store/Play screenshots. `npm run appstore:screenshots` uploaded 8 iPhone 6.9 and 8 iPad 13 screenshots; all are asset-delivery `COMPLETE`.
 - `npm run appstore:products` configured Apple subscription group/product localizations, review screenshots, availability, and Apple-equalized pricing. `Forg3 Pro` and `Forg3 Business` are submitted with app version `1.0` and currently `WAITING_FOR_REVIEW`.
 - Firebase web app exists on Google project `bergen-project`; public config and local Admin credential are installed in `.env.local` / `.deploy/firebase/`. Firebase Auth is initialized, `forg3.nak3deye.com` is authorized, and Google/Apple providers are enabled. Google has client credentials present; Apple is enabled with Apple-specific config present but still needs real-device redirect testing before launch.
