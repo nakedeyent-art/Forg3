@@ -1140,6 +1140,80 @@ input:focus {
   color: #7d2b2b;
 }
 
+.file-preview {
+  min-height: 520px;
+  display: grid;
+  place-items: center;
+  border: 1px solid #dce5e8;
+  border-radius: 8px;
+  padding: 22px;
+  background: #eef2f4;
+}
+
+.file-preview-card {
+  width: min(100%, 460px);
+  display: grid;
+  justify-items: start;
+  gap: 14px;
+  border: 1px solid #dce5e8;
+  border-radius: 8px;
+  padding: 22px;
+  background: #ffffff;
+  box-shadow: 0 14px 34px rgba(16, 24, 32, 0.12);
+}
+
+.file-preview-icon {
+  display: grid;
+  place-items: center;
+  width: 58px;
+  height: 58px;
+  border-radius: 8px;
+  color: #0b5c6b;
+  background: #e5f5f7;
+}
+
+.file-preview-card h2 {
+  margin: 2px 0 4px;
+  overflow-wrap: anywhere;
+  font-size: 1.1rem;
+}
+
+.file-preview-card p {
+  margin: 0;
+  color: #465660;
+  font-size: 0.9rem;
+  font-weight: 800;
+}
+
+.file-preview-meta {
+  width: 100%;
+  margin: 0;
+}
+
+.file-preview-meta div {
+  display: grid;
+  gap: 5px;
+}
+
+.file-preview-meta dt {
+  color: #0b5c6b;
+  font-size: 0.76rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.file-preview-meta dd {
+  margin: 0;
+  padding: 10px;
+  border-radius: 8px;
+  color: #465660;
+  background: #f7fafb;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.76rem;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
 .signature-panel {
   display: grid;
   gap: 18px;
@@ -1389,6 +1463,10 @@ input:focus {
 
   .pdf-canvas-frame {
     height: 64vh;
+    min-height: 430px;
+  }
+
+  .file-preview {
     min-height: 430px;
   }
 

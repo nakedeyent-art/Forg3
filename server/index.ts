@@ -27,7 +27,7 @@ import {
 } from './auth.js';
 import { closeDatabasePool } from './db.js';
 import { ObjectStore } from './objectStore.js';
-import { sealPdfWithSignatures } from './pdf.js';
+import { sealDocumentWithSignatures } from './pdf.js';
 import { DocumentStore } from './store.js';
 import { buildOtpAuthUrl, generateTotpSecret, verifyTotpCode } from './totp.js';
 import type {
@@ -62,8 +62,8 @@ const port = Number(process.env.PORT || 4127);
 const host = process.env.HOST || (process.env.NODE_ENV === 'production' ? '0.0.0.0' : '127.0.0.1');
 const distPath = path.resolve(process.cwd(), 'dist');
 const payPerSignatureFeeCents = clamp(Number(process.env.PAY_PER_SIGNATURE_FEE_CENTS ?? 99), 0, 100000);
-const jsonBodyLimit = process.env.JSON_BODY_LIMIT || '16mb';
-const maxPdfBytes = clamp(Number(process.env.MAX_PDF_BYTES ?? 10 * 1024 * 1024), 1, 50 * 1024 * 1024);
+const jsonBodyLimit = process.env.JSON_BODY_LIMIT || '40mb';
+const maxDocumentBytes = clamp(Number(process.env.MAX_DOCUMENT_BYTES ?? process.env.MAX_PDF_BYTES ?? 25 * 1024 * 1024), 1, 50 * 1024 * 1024);
 const highestTierPlanId: PlanId = 'forg3_business_monthly';
 const mfaCodeAttemptsMax = 5;
 const globalApiLimiter = rateLimit({
@@ -1245,7 +1245,7 @@ app.get('/api/documents/:id/signed', requireOwner, async (request, response) => 
     !sameEmail(document.ownerEmail, request.owner!.email) ||
     (!document.signedFileDataUrl && !document.signedFileObjectKey)
   ) {
-    response.status(404).json({ error: 'Signed PDF is not available.' });
+    response.status(404).json({ error: 'Signed package is not available.' });
     return;
   }
 
@@ -1268,13 +1268,16 @@ app.post('/api/documents', requireOwner, async (request, response) => {
     return;
   }
 
-  if (!String(body.fileType).includes('pdf') || !String(body.fileDataUrl).startsWith('data:application/pdf;base64,')) {
-    response.status(400).json({ error: 'Only PDF documents are supported in this version.' });
+  const fileDataUrl = String(body.fileDataUrl);
+  const fileInfo = parseDataUrl(fileDataUrl);
+
+  if (!fileInfo) {
+    response.status(400).json({ error: 'Uploaded document must be a base64 data URL.' });
     return;
   }
 
-  if (dataUrlByteLength(String(body.fileDataUrl)) > maxPdfBytes) {
-    response.status(413).json({ error: 'PDF exceeds the configured upload size limit.' });
+  if (dataUrlByteLength(fileDataUrl) > maxDocumentBytes) {
+    response.status(413).json({ error: 'Document exceeds the configured upload size limit.' });
     return;
   }
 
@@ -1339,14 +1342,14 @@ app.post('/api/documents', requireOwner, async (request, response) => {
       token
     };
   });
-  const fileObjectKey = await objectStore.putDataUrl(owner.email, documentId, 'original', String(body.fileDataUrl));
+  const fileObjectKey = await objectStore.putDataUrl(owner.email, documentId, 'original', fileDataUrl);
   const document: SigningDocument = {
     id: documentId,
     title: String(body.title).trim(),
     fileName: String(body.fileName),
-    fileType: String(body.fileType),
+    fileType: normalizeDocumentFileType(body.fileType, fileInfo.mimeType),
     fileObjectKey,
-    documentHash: sha256DataUrl(String(body.fileDataUrl)),
+    documentHash: sha256DataUrl(fileDataUrl),
     ownerName: owner.name || owner.email,
     ownerEmail: owner.email,
     signerName: links[0].signer.name,
@@ -1597,6 +1600,7 @@ app.get('/api/signing/:token', requireOwner, async (request, response) => {
       id: document.id,
       title: document.title,
       fileName: document.fileName,
+      fileType: document.fileType,
       documentHash: document.documentHash,
       signerId: signer.id,
       signerName: signer.name,
@@ -1757,11 +1761,13 @@ async function completeSignerSignature(
 
     const completedSigners = getDocumentSigners(signedDocument!);
     const signedFileDataUrl = await withTimeout(
-      sealPdfWithSignatures({
-        fileDataUrl: await readOriginalFileDataUrl(document),
-        title: document.title,
-        documentHash: document.documentHash,
-        signatureField: document.signatureField,
+      sealDocumentWithSignatures({
+        fileDataUrl: await readOriginalFileDataUrl(signedDocument!),
+        fileName: signedDocument!.fileName,
+        fileType: signedDocument!.fileType,
+        title: signedDocument!.title,
+        documentHash: signedDocument!.documentHash,
+        signatureField: signedDocument!.signatureField,
         certificateAuthorityStatus: getFeatureStatus().certificateAuthoritySignatures.configured
           ? 'Configured provider available'
           : 'Provider certificate not configured',
@@ -1775,7 +1781,7 @@ async function completeSignerSignature(
         }))
       }),
       clamp(Number(process.env.PDF_SEAL_TIMEOUT_MS ?? 15_000), 1_000, 120_000),
-      'PDF sealing timed out.'
+      'Document sealing timed out.'
     );
     const signedDocumentHash = sha256DataUrl(signedFileDataUrl);
     const signedFileObjectKey = await objectStore.putDataUrl(document.ownerEmail, document.id, 'signed', signedFileDataUrl);
@@ -1998,6 +2004,7 @@ function toPublicSigningDocument(document: SigningDocument, signer: DocumentSign
     id: document.id,
     title: document.title,
     fileName: document.fileName,
+    fileType: document.fileType,
     documentHash: document.documentHash,
     signerId: signer.id,
     signerName: signer.name,
@@ -2017,6 +2024,7 @@ function toSummary(document: SigningDocument): DocumentSummary {
     id: document.id,
     title: document.title,
     fileName: document.fileName,
+    fileType: document.fileType,
     documentHash: document.documentHash,
     ownerName: document.ownerName,
     ownerEmail: document.ownerEmail,
@@ -2053,6 +2061,7 @@ function toSignerInboxDocument(document: SigningDocument, signer: DocumentSigner
     id: document.id,
     title: document.title,
     fileName: document.fileName,
+    fileType: document.fileType,
     documentHash: document.documentHash,
     ownerName: document.ownerName,
     ownerEmail: document.ownerEmail,
@@ -2104,7 +2113,7 @@ async function readOriginalFileDataUrl(document: SigningDocument) {
     return document.fileDataUrl;
   }
 
-  throw new Error('Original PDF object is missing.');
+  throw new Error('Original file object is missing.');
 }
 
 async function readSignedFileDataUrl(document: SigningDocument) {
@@ -2116,7 +2125,7 @@ async function readSignedFileDataUrl(document: SigningDocument) {
     return document.signedFileDataUrl;
   }
 
-  throw new Error('Signed PDF object is missing.');
+  throw new Error('Signed package object is missing.');
 }
 
 function normalizeSigners(
@@ -2267,7 +2276,7 @@ async function createOwnerSignedDeliveries(input: {
     `Signed at: ${input.signedAt}`,
     `Signed document hash: ${input.signedDocumentHash}`,
     '',
-    `Open Forg3 to download the sealed PDF: ${dashboardUrl}`,
+    `Open Forg3 to download the sealed signed package: ${dashboardUrl}`,
     '',
     'Forg3'
   ].join('\n');
@@ -3360,6 +3369,23 @@ function dataUrlByteLength(dataUrl: string) {
   return Buffer.byteLength(base64, 'base64');
 }
 
+function parseDataUrl(dataUrl: string) {
+  const match = /^data:([^;,]+)?(?:;[^,]*)?;base64,/i.exec(dataUrl.trim());
+
+  if (!match) {
+    return null;
+  }
+
+  return {
+    mimeType: (match[1] || 'application/octet-stream').toLowerCase()
+  };
+}
+
+function normalizeDocumentFileType(fileType: unknown, fallbackMimeType: string) {
+  const normalized = String(fileType || fallbackMimeType || 'application/octet-stream').split(';')[0].trim().toLowerCase();
+  return normalized || 'application/octet-stream';
+}
+
 function isExpired(document: SigningDocument) {
   return new Date(document.expiresAt).getTime() <= Date.now();
 }
@@ -3505,7 +3531,7 @@ function clamp(value: number, min: number, max: number) {
 }
 
 function signedFileName(fileName: string) {
-  return fileName.replace(/\.pdf$/i, '') + '-signed.pdf';
+  return fileName.replace(/\.[^/.]+$/i, '') + '-signed.pdf';
 }
 
 function formatCents(cents: number) {

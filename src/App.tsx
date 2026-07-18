@@ -121,6 +121,29 @@ const blankForm: CreateForm = {
   identityVerificationRequired: false
 };
 
+const acceptedDocumentTypes = [
+  '.pdf',
+  '.doc',
+  '.docx',
+  '.xls',
+  '.xlsx',
+  '.ppt',
+  '.pptx',
+  '.txt',
+  '.rtf',
+  '.csv',
+  'application/pdf',
+  'application/msword',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/vnd.ms-excel',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'application/vnd.ms-powerpoint',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  'text/plain',
+  'text/rtf',
+  'text/csv'
+].join(',');
+
 const manualTierRows = [
   {
     feature: 'Base price',
@@ -363,11 +386,6 @@ function Dashboard() {
       return;
     }
 
-    if (nextFile.type !== 'application/pdf' && !nextFile.name.toLowerCase().endsWith('.pdf')) {
-      setMessage('Choose a PDF document.');
-      return;
-    }
-
     setBusy('file');
     setMessage('');
 
@@ -377,7 +395,7 @@ function Dashboard() {
       setFileDataUrl(dataUrl);
       setForm((current) => ({
         ...current,
-        title: current.title || nextFile.name.replace(/\.pdf$/i, '')
+        title: current.title || titleFromFileName(nextFile.name)
       }));
     } catch (error) {
       setMessage(getErrorMessage(error));
@@ -400,7 +418,7 @@ function Dashboard() {
     }
 
     if (!file || !fileDataUrl) {
-      setMessage('Add a PDF first.');
+      setMessage('Add a document first.');
       return;
     }
 
@@ -424,9 +442,9 @@ function Dashboard() {
           .filter((signer) => signer.name && signer.email)
       ];
       const response = await createDocument({
-        title: form.title.trim() || file.name.replace(/\.pdf$/i, ''),
+        title: form.title.trim() || titleFromFileName(file.name),
         fileName: file.name,
-        fileType: file.type || 'application/pdf',
+        fileType: getFileType(file, fileDataUrl),
         fileDataUrl,
         signerName: form.signerName.trim(),
         signerEmail: form.signerEmail.trim(),
@@ -611,7 +629,7 @@ function Dashboard() {
     try {
       const response = await getSignedDocument(document.id);
       if (!response.signedFileDataUrl) {
-        throw new Error('Signed PDF is not available yet.');
+        throw new Error('Signed package is not available yet.');
       }
       downloadDataUrl(response.signedFileDataUrl, response.fileName);
     } catch (error) {
@@ -775,7 +793,7 @@ function Dashboard() {
         <section className="onboarding-banner">
           <div>
             <span className="eyebrow">Welcome</span>
-            <h2>Send a PDF for signature in three steps</h2>
+            <h2>Send a document for signature in three steps</h2>
           </div>
           <ol>
             <li>
@@ -797,16 +815,16 @@ function Dashboard() {
           <div className="panel-heading">
             <div>
               <span className="eyebrow">New packet</span>
-              <h1>Send a PDF for signature</h1>
+              <h1>Send a document for signature</h1>
             </div>
             <ShieldCheck size={24} />
           </div>
 
           <form className="create-form" onSubmit={handleCreate}>
             <label className="dropzone">
-              <input accept="application/pdf,.pdf" type="file" onChange={(event) => void handleFile(event)} />
+              <input accept={acceptedDocumentTypes} type="file" onChange={(event) => void handleFile(event)} />
               <Upload size={22} />
-              <span>{file ? file.name : 'Choose PDF'}</span>
+              <span>{file ? file.name : 'Choose document'}</span>
               {busy === 'file' && <Loader2 className="spin" size={17} />}
             </label>
 
@@ -1065,7 +1083,7 @@ function Dashboard() {
                         <button
                           type="button"
                           onClick={() => void handleDownloadSigned(document)}
-                          title="Download signed PDF"
+                          title="Download signed package"
                         >
                           <Download size={16} />
                         </button>
@@ -1504,7 +1522,7 @@ function InstructionManual() {
           <ol>
             <li>Sign in with email code, Google, or Apple.</li>
             <li>Activate a sender subscription tier.</li>
-            <li>Choose a PDF, add a document title, signers, field placement, identity settings, and expiration window.</li>
+            <li>Choose a document, add a title, signers, field placement, identity settings, and expiration window.</li>
             <li>Create the packet.</li>
             <li>Forg3 creates signer-specific recipient links and delivers them by the configured email provider.</li>
           </ol>
@@ -1521,10 +1539,10 @@ function InstructionManual() {
           <ol>
             <li>The signer creates or signs in to a free Forg3 account with the assigned email.</li>
             <li>The signer opens the link before it expires.</li>
-            <li>The signer reviews the PDF.</li>
+            <li>The signer reviews the document.</li>
             <li>The signer draws with a finger, stylus, mouse, or touchpad, or uses the typed-signature option.</li>
             <li>The signer types the assigned name, completes ID attestation when required, and accepts consent.</li>
-            <li>Forg3 seals that signer link. The signed PDF is generated when every required signer completes.</li>
+            <li>Forg3 seals that signer link. The signed package is generated when every required signer completes.</li>
           </ol>
           <p>
             A completed signing link cannot be reused. Expired or voided links are unavailable to the signer.
@@ -1537,13 +1555,13 @@ function InstructionManual() {
             <h3>Storage and signed copies</h3>
           </div>
           <p>
-            The current build stores document metadata in the server store and moves original/signed PDF data into the
+            The current build stores document metadata in the server store and moves original/signed file data into the
             local object store. Production can swap this object layer to private cloud storage without changing the user
             flow.
           </p>
           <p>
             After signing, the signer can download a copy from the completion screen. The owner sees the packet marked
-            signed in the dashboard and can download the signed PDF from the document row.
+            signed in the dashboard and can download the signed package from the document row.
           </p>
         </article>
 
@@ -1989,12 +2007,20 @@ function SignerScreen({ access }: { access: SigningAccess }) {
               </div>
               <StatusChip status="sent" />
             </div>
-            <PdfPreview
-              fileDataUrl={fileDataUrl}
-              fileName={document.fileName}
-              title={document.title}
-              onDownload={() => downloadDataUrl(fileDataUrl, document.fileName)}
-            />
+            {isPdfDocument(document.fileType, document.fileName, fileDataUrl) ? (
+              <PdfPreview
+                fileDataUrl={fileDataUrl}
+                fileName={document.fileName}
+                title={document.title}
+                onDownload={() => downloadDataUrl(fileDataUrl, document.fileName)}
+              />
+            ) : (
+              <DocumentFilePreview
+                document={document}
+                fileDataUrl={fileDataUrl}
+                onDownload={() => downloadDataUrl(fileDataUrl, document.fileName)}
+              />
+            )}
           </section>
 
           <form className="signature-panel" onSubmit={handleSign}>
@@ -2106,6 +2132,43 @@ function StatusChip({ status }: { status: DocumentSummary['status'] }) {
   );
 }
 
+function DocumentFilePreview({
+  document,
+  fileDataUrl,
+  onDownload
+}: {
+  document: PublicSigningDocument;
+  fileDataUrl: string;
+  onDownload: () => void;
+}) {
+  const fileType = document.fileType || getMimeTypeFromDataUrl(fileDataUrl) || 'application/octet-stream';
+
+  return (
+    <div className="file-preview" aria-label={`File review for ${document.title}`}>
+      <div className="file-preview-card">
+        <div className="file-preview-icon">
+          <FileText size={34} />
+        </div>
+        <div>
+          <span className="eyebrow">Original file</span>
+          <h2>{document.fileName}</h2>
+          <p>{formatFileType(fileType)}</p>
+        </div>
+        <dl className="file-preview-meta">
+          <div>
+            <dt>SHA-256</dt>
+            <dd>{document.documentHash}</dd>
+          </div>
+        </dl>
+        <button type="button" className="secondary-button" onClick={onDownload}>
+          <Download size={17} />
+          Download original
+        </button>
+      </div>
+    </div>
+  );
+}
+
 async function refreshDocuments(
   setDocuments: (documents: DocumentSummary[]) => void,
   setMessage: (message: string) => void
@@ -2191,6 +2254,44 @@ function linksFromResponse(response: { document: DocumentSummary; signingLinks?:
       signerEmail: link.signerEmail,
       url: link.signingUrl || makeSigningUrl(link.signingPath)
     }));
+}
+
+function titleFromFileName(fileName: string) {
+  return fileName.replace(/\.[^/.]+$/i, '') || fileName;
+}
+
+function getFileType(file: File, fileDataUrl: string) {
+  return file.type || getMimeTypeFromDataUrl(fileDataUrl) || 'application/octet-stream';
+}
+
+function getMimeTypeFromDataUrl(fileDataUrl: string) {
+  const match = /^data:([^;,]+)?(?:;[^,]*)?;base64,/i.exec(fileDataUrl.trim());
+  return match?.[1]?.toLowerCase();
+}
+
+function isPdfDocument(fileType: string | undefined, fileName: string, fileDataUrl: string) {
+  return (
+    fileDataUrl.toLowerCase().startsWith('data:application/pdf;base64,') ||
+    String(fileType || '').toLowerCase().includes('pdf') ||
+    fileName.toLowerCase().endsWith('.pdf')
+  );
+}
+
+function formatFileType(fileType: string) {
+  const labels: Record<string, string> = {
+    'application/msword': 'Word document',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'Word document',
+    'application/vnd.ms-excel': 'Excel spreadsheet',
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 'Excel spreadsheet',
+    'application/vnd.ms-powerpoint': 'PowerPoint presentation',
+    'application/vnd.openxmlformats-officedocument.presentationml.presentation': 'PowerPoint presentation',
+    'application/pdf': 'PDF document',
+    'text/csv': 'CSV file',
+    'text/plain': 'Text file',
+    'text/rtf': 'RTF document'
+  };
+
+  return labels[fileType.toLowerCase()] || fileType;
 }
 
 async function copyText(value: string, setMessage: (message: string) => void) {

@@ -485,7 +485,7 @@ async function submitReviewPackage({ app, version, reviewDetail, ageRating, buil
 
 function appReviewNotes() {
   return [
-    'Forg3 is a secure e-signature app for PDF documents. Review can sign in with the supplied email test account/code flow.',
+    'Forg3 is a secure e-signature app for PDF, Word, Excel, PowerPoint, and text documents. Review can sign in with the supplied email test account/code flow.',
     'New devices require device verification before account documents or recipient rooms open.',
     'A paid subscription is required before non-creator accounts can send signature requests. Recipients can sign assigned documents without a paid subscription.',
     'Account deletion is available in Account settings and permanently removes documents, files, devices, sessions, and account history.',

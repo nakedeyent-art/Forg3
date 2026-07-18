@@ -41,8 +41,8 @@ function TermsContent() {
 
       <h2>1. The service</h2>
       <p>
-        Forg3 lets a sender upload a PDF, route it to named recipients by email, and collect electronic signatures.
-        Completed packets are sealed into a signed PDF with an audit certificate page. Features, pricing, limits, and
+        Forg3 lets a sender upload documents, route them to named recipients by email, and collect electronic signatures.
+        Completed packets are sealed into a signed PDF or certificate PDF with an audit certificate page. Features, pricing, limits, and
         availability may change as the service moves from release candidate to general availability.
       </p>
 

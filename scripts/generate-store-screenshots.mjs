@@ -93,8 +93,8 @@ const screenshotPlan = [
     }
   },
   {
-    name: '04-send-pdf-packet',
-    title: 'Send PDF packet',
+    name: '04-send-document-packet',
+    title: 'Send document packet',
     session: 'sender',
     hash: '#/',
     beforeShot: async (page) => {
@@ -103,7 +103,7 @@ const screenshotPlan = [
       await page.locator('input[placeholder="Client agreement"]').fill('Artist Split Agreement');
       await page.locator('input[placeholder="Customer name"]').fill(recipient.name);
       await page.locator('input[placeholder="customer@example.com"]').fill(recipient.email);
-      await page.getByText('Send a PDF for signature').waitFor({ state: 'visible' });
+      await page.getByText('Send a document for signature').waitFor({ state: 'visible' });
     }
   },
   {

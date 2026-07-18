@@ -81,6 +81,7 @@ export interface DocumentSummary {
   id: string;
   title: string;
   fileName: string;
+  fileType: string;
   documentHash: string;
   ownerName: string;
   ownerEmail: string;
@@ -112,6 +113,7 @@ export interface SignerInboxDocument {
   id: string;
   title: string;
   fileName: string;
+  fileType: string;
   documentHash: string;
   ownerName: string;
   ownerEmail: string;

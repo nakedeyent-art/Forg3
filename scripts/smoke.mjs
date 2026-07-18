@@ -88,6 +88,7 @@ async function run() {
   check('documents list rejects missing auth', unauthenticated.status === 401);
 
   const pdfDataUrl = `data:application/pdf;base64,${buildMinimalPdfBase64()}`;
+  const wordDataUrl = `data:application/vnd.openxmlformats-officedocument.wordprocessingml.document;base64,${buildFakeOfficeDocumentBase64()}`;
   const unpaidCreate = await api(
     'POST',
     '/api/documents',
@@ -275,6 +276,50 @@ async function run() {
   const sealed = await api('GET', `/api/documents/${documentId}/signed`, undefined, ownerToken);
   check('owner can download the sealed PDF', sealed.status === 200 && typeof sealed.body.signedFileDataUrl === 'string');
 
+  const wordCreated = await api(
+    'POST',
+    '/api/documents',
+    {
+      title: 'Smoke Word Agreement',
+      fileName: 'smoke-agreement.docx',
+      fileType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      fileDataUrl: wordDataUrl,
+      signers: [{ name: 'Smoke Signer', email: signerEmail }],
+      expiresInHours: 24
+    },
+    ownerToken
+  );
+  check('Word document creation succeeds', wordCreated.status === 201 && wordCreated.body.document?.fileType?.includes('wordprocessingml'));
+
+  const wordDocumentId = wordCreated.body.document?.id || 'missing-word-document';
+  const wordSignerId = wordCreated.body.signingLinks?.[0]?.signerId || 'missing-word-signer';
+  const wordAssigned = await api('GET', `/api/signer/documents/${wordDocumentId}/${wordSignerId}`, undefined, signerToken);
+  check(
+    'assigned signer can open the Word document',
+    wordAssigned.status === 200 && String(wordAssigned.body.fileDataUrl || '').startsWith('data:application/vnd.openxmlformats-officedocument.wordprocessingml.document;base64,')
+  );
+
+  const wordSigned = await api(
+    'POST',
+    `/api/signer/documents/${wordDocumentId}/${wordSignerId}/sign`,
+    {
+      signatureDataUrl: `data:image/png;base64,${buildTinyPngBase64()}`,
+      signerNameConfirmation: 'Smoke Signer',
+      consentText: 'I agree to sign electronically.'
+    },
+    signerToken
+  );
+  check(
+    'Word signature completes and returns a certificate PDF',
+    wordSigned.status === 200 && String(wordSigned.body.signedFileDataUrl || '').startsWith('data:application/pdf;base64,')
+  );
+
+  const wordSealed = await api('GET', `/api/documents/${wordDocumentId}/signed`, undefined, ownerToken);
+  check(
+    'owner can download the Word signed certificate PDF',
+    wordSealed.status === 200 && String(wordSealed.body.signedFileDataUrl || '').startsWith('data:application/pdf;base64,')
+  );
+
   const auditAfter = await api('GET', '/api/audit', undefined, ownerToken);
   check('audit log records document lifecycle events', auditAfter.body.events.some((event) => event.type === 'document.signed'));
   check('audit log is hash chained', verifyAuditChain(auditAfter.body.events));
@@ -421,6 +466,10 @@ startxref
 0
 %%EOF`;
   return Buffer.from(pdf, 'utf8').toString('base64');
+}
+
+function buildFakeOfficeDocumentBase64() {
+  return Buffer.from('Forg3 smoke document bytes', 'utf8').toString('base64');
 }
 
 function buildTinyPngBase64() {

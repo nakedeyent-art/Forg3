@@ -31,11 +31,11 @@ Last updated: 2026-07-16
 
 ## Store Description
 
-Forg3 is a secure e-signature app for sending PDF documents to assigned recipients by email. Senders upload a PDF, choose the recipient, and Forg3 delivers an email link that only the addressed recipient can open after email/device verification. Completed documents are sealed into a downloadable PDF with signature metadata, document hashes, timestamps, and an audit certificate page.
+Forg3 is a secure e-signature app for sending PDF, Word, Excel, PowerPoint, and text documents to assigned recipients by email. Senders upload a document, choose the recipient, and Forg3 delivers an email link that only the addressed recipient can open after email/device verification. Completed packets are sealed into a downloadable signed PDF or certificate PDF with signature metadata, document hashes, timestamps, and an audit certificate page.
 
 ## Short Description
 
-Secure PDF e-signatures with email-verified recipient access.
+Secure document e-signatures with email-verified recipient access.
 
 ## Keywords
 
