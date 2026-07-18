@@ -24,8 +24,8 @@
 - `npm run build:mobile:release` passes and syncs iOS/Android assets with `https://forg3.nak3deye.com`.
 - `npm run monitor:production` passes against public `https://forg3.nak3deye.com/api/health`.
 - `npm run verify:release-readiness` passes with ignored local launch-check env (`.env.production.local`) and verifies active Google Play subscription products.
-- Android signed release bundle passes with Android Studio JDK 21: `.deploy/mobile/forg3-1.0-build2-play-release-20260715T112303Z.aab` (SHA-256 `680c29e254fb28c1da3296787b4960480dcad8ed8ba0f3c754d3b29c5f33f50b`).
-- `npm run play:internal -- .deploy/mobile/forg3-1.0-build2-play-release-20260715T112303Z.aab` uploaded versionCode `2` to Play track `internal` with release status `completed`. Play Console shows latest release `Forg3 1.0 (2)` as active and available to internal testers, released July 15, 2026 at 7:24 AM, not reviewed yet.
+- Android signed release bundle passes with Android Studio JDK 21: `.deploy/mobile/forg3-1.0-build3-play-release-20260718T145315Z.aab` (SHA-256 `a0ba27a83ac9356851ea0335325609a2da803bb946b7dd83f4d894797c52f4c4`).
+- `npm run play:internal -- .deploy/mobile/forg3-1.0-build3-play-release-20260718T145315Z.aab` uploaded versionCode `3` to Play track `internal` with release status `completed` through the Google Play Developer API.
 - Android debug build passes after backup hardening.
 - iOS device app bundle validates with `codesign --verify --deep --strict`; bundle is `com.forg3.sign`, version `1.0`, build `3`.
 
@@ -47,7 +47,7 @@
 - Android Publisher API is enabled. Local service account `forg3-firebase-admin@bergen-project.iam.gserviceaccount.com` exists, has a key under `.deploy/firebase/`, and now has Forg3 app-scoped Play Console permissions sufficient for subscription/product writes.
 - Google RTDN Pub/Sub topic, Google Play publisher IAM binding, push subscription, package env, and local webhook token are configured.
 - Store products exist and are active: `forg3_pro_monthly/monthly` and `forg3_business_monthly/monthly`.
-- Internal testing release versionCode `2` is uploaded/completed through the Play Developer API. Play Console shows `Forg3 1.0 (2)` active and available to internal testers, with the temporary unreviewed app name warning still present.
+- Internal testing release versionCode `3` is uploaded/completed through the Play Developer API.
 - The selected internal tester list is `Forg3 Internal Testers` with 1 user. Tester opt-in link: `https://play.google.com/apps/internaltest/4701195408144317865`.
 - Opened the opt-in link on connected Android device `57221FDCG001AA`; Google Play returned "App not available" because that device's current Google account is not invited to the internal test. Screenshot: `.deploy/mobile/forg3-android-internaltest.png`.
 - Payment-profile bank verification, Play app-content/store-listing submission fields, tester account correction/opt-in/install confirmation, and purchase/restore tests are still pending.

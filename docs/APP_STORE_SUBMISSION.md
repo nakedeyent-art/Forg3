@@ -59,12 +59,12 @@ Pay Per Signature remains hidden in native iOS/Android builds until usage billin
 
 ## Google Play Internal Testing
 
-- Android `versionName` is `1.0`; internal Play upload number is `versionCode 2`.
-- Latest signed AAB: `.deploy/mobile/forg3-1.0-build2-play-release-20260715T112303Z.aab`.
-- Uploaded through `npm run play:internal` to track `internal` with release status `completed`; Play Console shows `Forg3 1.0 (2)` active and available to internal testers.
+- Android `versionName` is `1.0`; internal Play upload number is `versionCode 3`.
+- Latest signed AAB: `.deploy/mobile/forg3-1.0-build3-play-release-20260718T145315Z.aab` (SHA-256 `a0ba27a83ac9356851ea0335325609a2da803bb946b7dd83f4d894797c52f4c4`).
+- Uploaded through `npm run play:internal` to track `internal` with release status `completed`; the Google Play Developer API accepted `Forg3 1.0 (3)` on 2026-07-18.
 - Selected tester lists: `Forg3 Internal Testers` with 2 users (`st@nak3deye.com`, `SeanETerry@gmail.com`) plus `The Daily Edge Android List` with 7 users. Play Console shows both lists checked and saved on 2026-07-16.
 - Tester opt-in link: `https://play.google.com/apps/internaltest/4701195408144317865`.
-- Android Publisher API status on 2026-07-16: internal track contains `Forg3 1.0 (2)` with `status=completed`; `edits.testers` returns no Google Groups for the internal track. Play App content shows no pending declarations and 10 actioned declarations dated July 16, 2026. Default store listing is ready to send for review with the Forg3 app name, descriptions, icon, feature graphic, 8 phone screenshots, 8 7-inch tablet screenshots, and 8 10-inch tablet screenshots. Current local `adb devices` lists no Android hardware, so tester opt-in/install and sandbox purchase/restore testing are still pending on a connected invited device.
+- Android Publisher API status on 2026-07-18: internal track upload completed for `Forg3 1.0 (3)`; `edits.testers` previously returned no Google Groups for the internal track. Play App content shows no pending declarations and 10 actioned declarations dated July 16, 2026. Default store listing is ready to send for review with the Forg3 app name, descriptions, icon, feature graphic, 8 phone screenshots, 8 7-inch tablet screenshots, and 8 10-inch tablet screenshots. Tester opt-in/install and sandbox purchase/restore testing are still pending on invited devices.
 - Google Play production access is still gated by Google: the app dashboard requires a closed test with at least 12 opted-in testers for at least 14 days before `Apply for production` becomes available.
 
 ## Required Sandbox Tests
