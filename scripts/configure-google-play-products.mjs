@@ -11,7 +11,7 @@ const products = [
     basePlanId: 'monthly',
     title: 'Forg3 Pro',
     description: 'Monthly sender access for individual secure e-signature workflows.',
-    benefits: ['Send signing packets', 'Recipient-only access', 'Sealed PDFs', 'Audit trail'],
+    benefits: ['Send signing packets', 'Recipient-only access', 'Sealed signed packages', 'Audit trail'],
     price: { currencyCode: 'USD', units: '18', nanos: 990_000_000 }
   },
   {
@@ -19,7 +19,7 @@ const products = [
     basePlanId: 'monthly',
     title: 'Forg3 Business',
     description: 'Monthly sender access for business secure e-signature workflows.',
-    benefits: ['Unlimited sender access', 'Recipient-only access', 'Sealed PDFs', 'Audit trail'],
+    benefits: ['Unlimited sender access', 'Recipient-only access', 'Sealed signed packages', 'Audit trail'],
     price: { currencyCode: 'USD', units: '39', nanos: 990_000_000 }
   }
 ];

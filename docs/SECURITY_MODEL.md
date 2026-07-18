@@ -70,6 +70,6 @@ The local store does not intentionally capture:
 - **Trusted-device management**: list and revoke trusted devices (`/api/auth/devices*`); revocation forces fresh device 2FA.
 - **Append-only audit chain**: every auth and document lifecycle event appends an owner-scoped record whose hash commits to the previous record (`store.appendAuditEvent`); readable at `/api/audit` without exposing document contents.
 - **Abuse protection**: strict rate limits and per-account+device resend cooldowns on all login/2FA code endpoints.
-- **Encryption at rest**: uploaded and sealed PDFs are AES-256-GCM encrypted when `FORG3_OBJECT_ENCRYPTION_KEY` is set; production refuses to start without it unless explicitly overridden.
-- **Data subject controls**: full JSON export (`/api/account/export`) and confirmed irreversible deletion (`/api/account/delete`) including stored PDF objects.
+- **Encryption at rest**: uploaded documents and sealed signed packages are AES-256-GCM encrypted when `FORG3_OBJECT_ENCRYPTION_KEY` is set; production refuses to start without it unless explicitly overridden.
+- **Data subject controls**: full JSON export (`/api/account/export`) and confirmed irreversible deletion (`/api/account/delete`) including stored document objects.
 - **CI enforcement**: the smoke suite asserts recipient-email matching, free-recipient signing, revocation, and audit chain integrity on every push.

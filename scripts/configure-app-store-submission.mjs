@@ -113,7 +113,7 @@ async function configure({ app, version, localization, reviewDetail, ageRating, 
           attributes: {
             marketingUrl: env.APP_STORE_MARKETING_URL || 'https://forg3.nak3deye.com/',
             promotionalText:
-              'Secure PDF e-signatures with email-verified recipient access, device verification, and sealed audit records.'
+              'Secure document e-signatures with email-verified recipient access, device verification, and sealed audit records.'
           }
         }
       }

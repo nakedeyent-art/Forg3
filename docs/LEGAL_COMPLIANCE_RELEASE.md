@@ -9,7 +9,7 @@ This is an operator checklist, not legal advice. Complete it before charging out
 - Forg3 creates electronic signature stamps and an audit certificate page.
 - Forg3 does not currently create a CA-backed PAdES digital signature unless `PDF_SIGNING_CERT_P12_BASE64` and `PDF_SIGNING_CERT_PASSWORD` are configured with a real signing-certificate provider.
 - Recipient access is email-addressed and device-verified.
-- Stored PDFs are encrypted at rest when `FORG3_OBJECT_ENCRYPTION_KEY` is configured.
+- Stored documents and signed packages are encrypted at rest when `FORG3_OBJECT_ENCRYPTION_KEY` is configured.
 - Account deletion and JSON export are available in Account settings.
 
 ## Decisions To Lock Before Public Paid Launch

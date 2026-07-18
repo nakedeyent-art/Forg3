@@ -12,13 +12,13 @@ exactly what is missing.
 node -e "console.log('APP_AUTH_SECRET='+require('crypto').randomBytes(32).toString('hex'))"
 # Device two-factor hashing secret
 node -e "console.log('DEVICE_TRUST_SECRET='+require('crypto').randomBytes(32).toString('hex'))"
-# AES-256-GCM key for PDFs at rest
+# AES-256-GCM key for uploaded documents and signed packages at rest
 node -e "console.log('FORG3_OBJECT_ENCRYPTION_KEY='+require('crypto').randomBytes(32).toString('hex'))"
 ```
 
 Store these in your platform's secret manager. Rotating `APP_AUTH_SECRET`
 signs everyone out; rotating `FORG3_OBJECT_ENCRYPTION_KEY` makes previously
-encrypted PDFs unreadable — never rotate it without re-encrypting.
+encrypted document objects unreadable — never rotate it without re-encrypting.
 
 ## 2. Required environment
 
@@ -27,7 +27,7 @@ encrypted PDFs unreadable — never rotate it without re-encrypting.
 | `NODE_ENV` | `production` |
 | `APP_AUTH_SECRET` | Signs email-login bearer tokens |
 | `DEVICE_TRUST_SECRET` | Hashes device ids and 2FA codes |
-| `FORG3_OBJECT_ENCRYPTION_KEY` | Encrypts stored PDFs (32 bytes hex/base64) |
+| `FORG3_OBJECT_ENCRYPTION_KEY` | Encrypts stored document objects (32 bytes hex/base64) |
 | `DATABASE_URL` | Postgres connection string |
 | `EMAIL_PROVIDER` + credentials | `microsoft_graph` (tenant/client/secret/sender) or `resend` (`RESEND_API_KEY`, `FORG3_EMAIL_FROM`) |
 | `PUBLIC_SIGNING_BASE_URL` | Public HTTPS origin used in signing-link emails, e.g. `https://sign.example.com` |
@@ -61,14 +61,14 @@ Native billing:
 ## 3. Storage model
 
 With `DATABASE_URL` set, Forg3 stores workflow state in a `forg3_store` jsonb
-row and PDFs (already AES-256-GCM encrypted) in a `forg3_objects` bytea table.
+row and uploaded/signed document objects (already AES-256-GCM encrypted) in a `forg3_objects` bytea table.
 Both tables are created automatically at boot — no migration step.
 
 **Run exactly one app instance.** The store uses an in-process cache with
 serialized write-through; horizontal scaling requires the fuller relational
 schema described in [PRODUCTION_PERSISTENCE.md](PRODUCTION_PERSISTENCE.md).
 
-Backups: standard `pg_dump` covers everything (documents, PDFs, audit chain).
+Backups: standard `pg_dump` covers everything (documents, uploaded/signed objects, audit chain).
 
 ```bash
 pg_dump "$DATABASE_URL" --schema=forg3 --format=custom --no-owner --no-privileges --file=forg3-backup.dump

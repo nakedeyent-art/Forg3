@@ -12,7 +12,7 @@ const track = process.env.GOOGLE_PLAY_TRACK || 'internal';
 const releaseStatus = process.env.GOOGLE_PLAY_RELEASE_STATUS || 'completed';
 const releaseNotes =
   process.env.GOOGLE_PLAY_RELEASE_NOTES ||
-  'Forg3 1.0 internal testing build for signup, 2FA, PDF signing, and billing verification.';
+  'Forg3 1.0 internal testing build for signup, 2FA, document signing, and billing verification.';
 const aabPath = resolveAabPath(process.argv[2]);
 
 if (!['draft', 'inProgress', 'halted', 'completed'].includes(releaseStatus)) {

@@ -176,7 +176,7 @@ const manualTierRows = [
     business: '5 planned seats'
   },
   {
-    feature: 'PDF upload and signing links',
+    feature: 'Document upload and signing links',
     payPerSignature: 'Included',
     pro: 'Included',
     business: 'Included'
@@ -194,7 +194,7 @@ const manualTierRows = [
     business: 'Included'
   },
   {
-    feature: 'Signed PDF download',
+    feature: 'Signed package download',
     payPerSignature: 'Included',
     pro: 'Included',
     business: 'Included'
@@ -2049,8 +2049,8 @@ function SignerScreen({ access }: { access: SigningAccess }) {
                   changed since it was sent.
                 </li>
                 <li>
-                  After everyone signs, the PDF is sealed with an audit certificate page and you can download your copy
-                  immediately.
+                  After everyone signs, Forg3 seals a signed package with an audit certificate page that you can
+                  download immediately.
                 </li>
               </ul>
             </div>

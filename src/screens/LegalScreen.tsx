@@ -119,8 +119,8 @@ function PrivacyContent() {
       <h2>How access is controlled</h2>
       <p>
         Documents are only visible to the sender&apos;s account and to recipients signed in with the exact email address
-        the sender designated. Signing links are single-purpose, expiring, and stored only as hashes. Stored PDFs are
-        encrypted at rest when the deployment configures an encryption key.
+        the sender designated. Signing links are single-purpose, expiring, and stored only as hashes. Stored documents
+        and signed packages are encrypted at rest when the deployment configures an encryption key.
       </p>
 
       <h2>Retention and your controls</h2>
