@@ -1,4 +1,4 @@
-import { type ChangeEvent, type FormEvent, useEffect, useMemo, useState } from 'react';
+import { type ChangeEvent, type FormEvent, useEffect, useMemo, useRef, useState } from 'react';
 import { Capacitor } from '@capacitor/core';
 import {
   AlertCircle,
@@ -87,7 +87,7 @@ import type {
   SubscriptionEntitlement,
   SubscriptionPlan
 } from './lib/types';
-import { SignaturePad } from './components/SignaturePad';
+import { SignaturePad, type SignaturePadHandle } from './components/SignaturePad';
 
 interface RouteState {
   kind: 'dashboard' | 'sign' | 'inbox' | 'assigned-sign' | 'settings' | 'terms' | 'privacy' | 'account-deletion';
@@ -639,6 +639,30 @@ function Dashboard() {
     }
   };
 
+  const getSigningLinkForDocument = (documentId: string) =>
+    latestLinks.find((link) => link.documentId === documentId)?.url || null;
+
+  const handleCopySigningLink = async (document: DocumentSummary) => {
+    const signingUrl = getSigningLinkForDocument(document.id);
+
+    if (!signingUrl) {
+      setMessage('Create or rotate the link first.');
+      return;
+    }
+
+    setBusy(`copy-link-${document.id}`);
+    setMessage('');
+
+    try {
+      await copyText(signingUrl, setMessage);
+      setMessage(`Signing link for ${document.title} copied.`);
+    } catch (error) {
+      setMessage(getErrorMessage(error));
+    } finally {
+      setBusy('');
+    }
+  };
+
   const handleReminder = async (document: DocumentSummary) => {
     setBusy(`remind-${document.id}`);
     setMessage('');
@@ -1075,10 +1099,27 @@ function Dashboard() {
                             : `${document.signerName} - ${document.signerEmail}`}
                         </p>
                         <small>Expires {formatDate(document.expiresAt)}</small>
+                        {document.linkAvailable && (
+                          <small className="document-link-preview">Direct signing link ready to copy.</small>
+                        )}
                       </div>
                     </div>
                     <StatusChip status={document.status} />
                     <div className="row-actions">
+                      {document.linkAvailable && (
+                        <button
+                          type="button"
+                          onClick={() => void handleCopySigningLink(document)}
+                          disabled={busy === `copy-link-${document.id}`}
+                          title="Copy signing link"
+                        >
+                          {busy === `copy-link-${document.id}` ? (
+                            <Loader2 className="spin" size={16} />
+                          ) : (
+                            <Copy size={16} />
+                          )}
+                        </button>
+                      )}
                       {document.status === 'signed' && (
                         <button
                           type="button"
@@ -1809,6 +1850,7 @@ function SignerScreen({ access }: { access: SigningAccess }) {
   const [busy, setBusy] = useState('load');
   const [message, setMessage] = useState('');
   const [signedResult, setSignedResult] = useState<SignedDocumentResponse | null>(null);
+  const signaturePadRef = useRef<SignaturePadHandle | null>(null);
   const requiresAuth = true;
 
   useEffect(() => {
@@ -1890,23 +1932,40 @@ function SignerScreen({ access }: { access: SigningAccess }) {
 
   const handleSign = async (event: FormEvent) => {
     event.preventDefault();
+    const latestSignatureDataUrl = signaturePadRef.current?.getSignatureDataUrl() || signatureDataUrl;
 
-    if (
-      !document ||
-      !signatureDataUrl ||
-      !consent ||
-      !namesMatch(signerNameConfirmation, document.signerName) ||
-      (document.identityVerificationRequired && signerEmailConfirmation.trim().toLowerCase() !== document.signerEmail.toLowerCase())
-    ) {
+    if (!document) {
+      setMessage('Reload the signing room before submitting.');
       return;
     }
 
+    if (!latestSignatureDataUrl) {
+      setMessage('Draw or type your signature before signing.');
+      return;
+    }
+
+    if (!namesMatch(signerNameConfirmation, document.signerName)) {
+      setMessage(`Type the signer name as "${document.signerName}" before signing.`);
+      return;
+    }
+
+    if (document.identityVerificationRequired && signerEmailConfirmation.trim().toLowerCase() !== document.signerEmail.toLowerCase()) {
+      setMessage(`Confirm the assigned signer email ${document.signerEmail} before signing.`);
+      return;
+    }
+
+    if (!consent) {
+      setMessage('Accept electronic signature consent before signing.');
+      return;
+    }
+
+    setSignatureDataUrl(latestSignatureDataUrl);
     setBusy('sign');
     setMessage('');
 
     try {
       const payload = {
-        signatureDataUrl,
+        signatureDataUrl: latestSignatureDataUrl,
         signerNameConfirmation,
         signerEmailConfirmation,
         consentText: `${document.signerName} accepted electronic signature consent at ${new Date().toISOString()}`
@@ -2059,7 +2118,7 @@ function SignerScreen({ access }: { access: SigningAccess }) {
               <span>Draw signature</span>
               <small>Finger, stylus, mouse, or touchpad</small>
             </div>
-            <SignaturePad onChange={setSignatureDataUrl} />
+            <SignaturePad ref={signaturePadRef} onChange={setSignatureDataUrl} />
 
             <label>
               <span>Type signer name</span>
@@ -2090,14 +2149,7 @@ function SignerScreen({ access }: { access: SigningAccess }) {
             <button
               className="primary-button"
               type="submit"
-              disabled={
-                !signatureDataUrl ||
-                !consent ||
-                !namesMatch(signerNameConfirmation, document.signerName) ||
-                (document.identityVerificationRequired &&
-                  signerEmailConfirmation.trim().toLowerCase() !== document.signerEmail.toLowerCase()) ||
-                busy === 'sign'
-              }
+              disabled={busy === 'sign'}
             >
               {busy === 'sign' ? <Loader2 className="spin" size={17} /> : <PenLine size={17} />}
               Sign document

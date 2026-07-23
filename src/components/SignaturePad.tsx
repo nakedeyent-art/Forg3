@@ -1,14 +1,29 @@
-import { type ChangeEvent, type PointerEvent, useEffect, useRef, useState } from 'react';
+import {
+  type ChangeEvent,
+  forwardRef,
+  type PointerEvent,
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useRef,
+  useState
+} from 'react';
 import { RotateCcw } from 'lucide-react';
 
 interface SignaturePadProps {
   onChange: (signatureDataUrl: string | null) => void;
 }
 
-export function SignaturePad({ onChange }: SignaturePadProps) {
+export interface SignaturePadHandle {
+  getSignatureDataUrl: () => string | null;
+  clear: () => void;
+}
+
+export const SignaturePad = forwardRef<SignaturePadHandle, SignaturePadProps>(function SignaturePad({ onChange }, ref) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const drawingRef = useRef(false);
   const hasInkRef = useRef(false);
+  const latestSignatureDataUrlRef = useRef<string | null>(null);
   const [mode, setMode] = useState<'draw' | 'type'>('draw');
   const [typedSignature, setTypedSignature] = useState('');
 
@@ -20,11 +35,14 @@ export function SignaturePad({ onChange }: SignaturePadProps) {
     }
 
     const resizeCanvas = () => {
+      const currentSignature = hasInkRef.current
+        ? latestSignatureDataUrlRef.current || canvas.toDataURL('image/png')
+        : latestSignatureDataUrlRef.current;
       const rect = canvas.getBoundingClientRect();
       const ratio = window.devicePixelRatio || 1;
       canvas.style.touchAction = 'none';
-      canvas.width = Math.floor(rect.width * ratio);
-      canvas.height = Math.floor(rect.height * ratio);
+      canvas.width = Math.max(1, Math.floor(rect.width * ratio));
+      canvas.height = Math.max(1, Math.floor(rect.height * ratio));
       const context = canvas.getContext('2d');
 
       if (!context) {
@@ -38,12 +56,25 @@ export function SignaturePad({ onChange }: SignaturePadProps) {
       context.strokeStyle = '#101820';
       context.fillStyle = '#ffffff';
       context.fillRect(0, 0, rect.width, rect.height);
+
+      if (currentSignature) {
+        latestSignatureDataUrlRef.current = currentSignature;
+        drawSignatureImage(canvas, currentSignature);
+      }
     };
 
     resizeCanvas();
     window.addEventListener('resize', resizeCanvas);
     return () => window.removeEventListener('resize', resizeCanvas);
-  }, []);
+  }, [mode]);
+
+  const emitSignature = useCallback(
+    (signatureDataUrl: string | null) => {
+      latestSignatureDataUrlRef.current = signatureDataUrl;
+      onChange(signatureDataUrl);
+    },
+    [onChange]
+  );
 
   const startDrawing = (event: PointerEvent<HTMLCanvasElement>) => {
     if (event.pointerType === 'mouse' && event.button !== 0) {
@@ -98,17 +129,17 @@ export function SignaturePad({ onChange }: SignaturePadProps) {
     }
 
     if (canvas && hasInkRef.current) {
-      onChange(canvas.toDataURL('image/png'));
+      emitSignature(canvas.toDataURL('image/png'));
     }
   };
 
-  const clear = () => {
+  const clear = useCallback(() => {
     const canvas = canvasRef.current;
     const context = canvas?.getContext('2d');
 
     hasInkRef.current = false;
     setTypedSignature('');
-    onChange(null);
+    emitSignature(null);
 
     if (!canvas || !context) {
       return;
@@ -117,7 +148,16 @@ export function SignaturePad({ onChange }: SignaturePadProps) {
     const rect = canvas.getBoundingClientRect();
     context.fillStyle = '#ffffff';
     context.fillRect(0, 0, rect.width, rect.height);
-  };
+  }, [emitSignature]);
+
+  useImperativeHandle(
+    ref,
+    () => ({
+      getSignatureDataUrl: () => latestSignatureDataUrlRef.current,
+      clear
+    }),
+    [clear]
+  );
 
   const changeMode = (nextMode: 'draw' | 'type') => {
     setMode(nextMode);
@@ -129,11 +169,11 @@ export function SignaturePad({ onChange }: SignaturePadProps) {
     setTypedSignature(value);
 
     if (!value.trim()) {
-      onChange(null);
+      emitSignature(null);
       return;
     }
 
-    onChange(createTypedSignatureDataUrl(value.trim()));
+    emitSignature(createTypedSignatureDataUrl(value.trim()));
   };
 
   return (
@@ -188,7 +228,7 @@ export function SignaturePad({ onChange }: SignaturePadProps) {
       )}
     </div>
   );
-}
+});
 
 function getPoint(canvas: HTMLCanvasElement, event: PointerEvent<HTMLCanvasElement>) {
   const rect = canvas.getBoundingClientRect();
@@ -222,6 +262,21 @@ function createTypedSignatureDataUrl(value: string) {
   context.fillText(fitText(value, 28), 72, 126, 576);
 
   return canvas.toDataURL('image/png');
+}
+
+function drawSignatureImage(canvas: HTMLCanvasElement, signatureDataUrl: string) {
+  const context = canvas.getContext('2d');
+
+  if (!context) {
+    return;
+  }
+
+  const rect = canvas.getBoundingClientRect();
+  const image = new Image();
+  image.onload = () => {
+    context.drawImage(image, 0, 0, rect.width, rect.height);
+  };
+  image.src = signatureDataUrl;
 }
 
 function fitText(value: string, maxLength: number) {

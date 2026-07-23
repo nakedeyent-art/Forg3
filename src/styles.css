@@ -983,6 +983,12 @@ input:focus {
   overflow-wrap: anywhere;
 }
 
+.document-link-preview {
+  color: #176b87;
+  font-size: 0.76rem;
+  font-weight: 650;
+}
+
 .status-chip {
   min-height: 30px;
   display: inline-flex;
