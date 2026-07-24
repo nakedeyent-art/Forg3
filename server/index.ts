@@ -171,6 +171,12 @@ interface ProviderDeliveryResult {
   error?: string;
 }
 
+interface EmailAttachment {
+  fileName: string;
+  contentType: string;
+  contentBase64: string;
+}
+
 interface MicrosoftGraphEmailConfig {
   tenantId: string;
   clientId: string;
@@ -1257,6 +1263,53 @@ app.get('/api/documents/:id/signed', requireOwner, async (request, response) => 
   });
 });
 
+app.post('/api/documents/:id/signed/deliver', requireOwner, async (request, response, next) => {
+  try {
+    const owner = request.owner!;
+    const document = store.get(String(request.params.id));
+
+    if (!document || !sameEmail(document.ownerEmail, owner.email)) {
+      response.status(404).json({ error: 'Document not found.' });
+      return;
+    }
+
+    if (document.status !== 'signed' || (!document.signedFileDataUrl && !document.signedFileObjectKey)) {
+      response.status(409).json({ error: 'Signed package is not available yet.' });
+      return;
+    }
+
+    const signedFileDataUrl = await readSignedFileDataUrl(document);
+    const signedSigner = getMostRecentSignedSigner(document);
+    const deliveries = await createOwnerSignedDeliveries({
+      request,
+      ownerEmail: document.ownerEmail,
+      ownerName: document.ownerName,
+      documentId: document.id,
+      signerId: signedSigner?.id,
+      signerName: signedSigner?.name || 'All signers',
+      signerEmail: signedSigner?.email || 'multiple signers',
+      documentTitle: document.title,
+      signedFileName: signedFileName(document.fileName),
+      signedFileDataUrl,
+      signedAt: document.signedAt || new Date().toISOString(),
+      signedDocumentHash: document.signedDocumentHash || sha256DataUrl(signedFileDataUrl)
+    });
+
+    store.appendAuditEvent({
+      ownerEmail: document.ownerEmail,
+      actorEmail: owner.email,
+      type: 'document.signed_copy_sent',
+      message: `Signed copy delivery was sent for "${document.title}".`,
+      documentId: document.id,
+      signerId: signedSigner?.id
+    });
+
+    response.status(201).json({ deliveries });
+  } catch (error) {
+    next(error);
+  }
+});
+
 app.post('/api/documents', requireOwner, async (request, response) => {
   const owner = request.owner!;
   const body = request.body as Partial<SigningDocument> & { expiresInHours?: number; signers?: unknown };
@@ -1814,6 +1867,8 @@ async function completeSignerSignature(
       signerName: signer.name,
       signerEmail: signer.email,
       documentTitle: document.title,
+      signedFileName: signedFileName(document.fileName),
+      signedFileDataUrl,
       signedAt,
       signedDocumentHash
     });
@@ -2104,6 +2159,12 @@ function getDocumentSigners(document: SigningDocument): DocumentSigner[] {
   ];
 }
 
+function getMostRecentSignedSigner(document: SigningDocument) {
+  return getDocumentSigners(document)
+    .filter((signer) => signer.status === 'signed')
+    .sort((left, right) => new Date(right.signedAt || 0).getTime() - new Date(left.signedAt || 0).getTime())[0];
+}
+
 async function readOriginalFileDataUrl(document: SigningDocument) {
   if (document.fileObjectKey) {
     return objectStore.getDataUrl(document.fileObjectKey);
@@ -2222,6 +2283,7 @@ async function createDeliveryRecord(input: {
   subject: string;
   body: string;
   signingUrl?: string;
+  attachments?: EmailAttachment[];
 }) {
   const providerResult = await sendEmailDelivery({
     toEmail: input.toEmail,
@@ -2229,7 +2291,8 @@ async function createDeliveryRecord(input: {
     subject: input.subject,
     body: input.body,
     senderEmail: input.senderEmail || input.ownerEmail,
-    senderName: input.ownerName
+    senderName: input.ownerName,
+    attachments: input.attachments
   });
 
   return store.addEmailDelivery({
@@ -2263,11 +2326,14 @@ async function createOwnerSignedDeliveries(input: {
   signerName: string;
   signerEmail: string;
   documentTitle: string;
+  signedFileName: string;
+  signedFileDataUrl: string;
   signedAt: string;
   signedDocumentHash: string;
 }) {
   const dashboardUrl = getPublicSigningBaseUrl(input.request);
   const ownerName = sanitizeEnvValue(input.ownerName || input.ownerEmail, 120);
+  const signedAttachment = dataUrlToEmailAttachment(input.signedFileDataUrl, input.signedFileName);
   const subject = `${input.documentTitle} has been signed`;
   const body = [
     `Hello ${ownerName},`,
@@ -2276,7 +2342,10 @@ async function createOwnerSignedDeliveries(input: {
     `Signed at: ${input.signedAt}`,
     `Signed document hash: ${input.signedDocumentHash}`,
     '',
-    `Open Forg3 to download the sealed signed package: ${dashboardUrl}`,
+    signedAttachment
+      ? `The sealed signed package is attached as ${signedAttachment.fileName}.`
+      : 'The sealed signed package is ready.',
+    `You can also open Forg3 to download it from the sender dashboard: ${dashboardUrl}`,
     '',
     'Forg3'
   ].join('\n');
@@ -2293,9 +2362,26 @@ async function createOwnerSignedDeliveries(input: {
       channel: 'email',
       kind: 'signed_copy',
       subject,
-      body
+      body,
+      attachments: signedAttachment ? [signedAttachment] : undefined
     })
   ];
+}
+
+function dataUrlToEmailAttachment(dataUrl: string, fileName: string): EmailAttachment | null {
+  const match = dataUrl.match(/^data:([^;,]+);base64,(.*)$/s);
+  const contentType = match?.[1];
+  const contentBase64 = match?.[2];
+
+  if (!contentType || !contentBase64) {
+    return null;
+  }
+
+  return {
+    fileName,
+    contentType,
+    contentBase64
+  };
 }
 
 function redactSigningUrlFromBody(body: string, signingUrl?: string) {
@@ -2313,6 +2399,7 @@ async function sendEmailDelivery(input: {
   body: string;
   senderEmail?: string;
   senderName?: string;
+  attachments?: EmailAttachment[];
 }): Promise<ProviderDeliveryResult> {
   const provider = normalizeProviderName(process.env.EMAIL_PROVIDER);
   if (!provider) {
@@ -2363,7 +2450,11 @@ async function sendEmailDelivery(input: {
         subject: input.subject,
         text: input.body,
         html: plainTextEmailHtml(input.body),
-        reply_to: replyTo || undefined
+        reply_to: replyTo || undefined,
+        attachments: input.attachments?.map((attachment) => ({
+          filename: attachment.fileName,
+          content: attachment.contentBase64
+        }))
       })
     });
     const payload = await response.json().catch(() => ({})) as { id?: string; message?: string; error?: string };
@@ -2387,6 +2478,7 @@ async function sendMicrosoftGraphEmail(input: {
   subject: string;
   body: string;
   senderEmail?: string;
+  attachments?: EmailAttachment[];
 }): Promise<ProviderDeliveryResult> {
   const provider = 'microsoft_graph';
   const config = getMicrosoftGraphEmailConfig(input.senderEmail);
@@ -2415,6 +2507,14 @@ async function sendMicrosoftGraphEmail(input: {
     }
     if (config.useFromAlias && config.from) {
       message.from = { emailAddress: { address: config.from } };
+    }
+    if (input.attachments?.length) {
+      message.attachments = input.attachments.map((attachment) => ({
+        '@odata.type': '#microsoft.graph.fileAttachment',
+        name: attachment.fileName,
+        contentType: attachment.contentType,
+        contentBytes: attachment.contentBase64
+      }));
     }
 
     const response = await fetch(`https://graph.microsoft.com/v1.0/users/${encodeURIComponent(config.sender)}/sendMail`, {

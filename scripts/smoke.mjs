@@ -272,9 +272,25 @@ async function run() {
     signerToken
   );
   check('signature completes and seals the PDF', signed.status === 200 && typeof signed.body.signedFileDataUrl === 'string');
+  check(
+    'signature completion queues signed PDF return email',
+    signed.body.deliveries?.some(
+      (delivery) =>
+        delivery.kind === 'signed_copy' &&
+        delivery.toEmail === ownerEmail &&
+        delivery.body?.includes('sealed signed package is attached')
+    )
+  );
 
   const sealed = await api('GET', `/api/documents/${documentId}/signed`, undefined, ownerToken);
   check('owner can download the sealed PDF', sealed.status === 200 && typeof sealed.body.signedFileDataUrl === 'string');
+
+  const signedCopyDelivery = await api('POST', `/api/documents/${documentId}/signed/deliver`, {}, ownerToken);
+  check(
+    'owner can resend signed PDF return email',
+    signedCopyDelivery.status === 201 &&
+      signedCopyDelivery.body.deliveries?.some((delivery) => delivery.kind === 'signed_copy' && delivery.toEmail === ownerEmail)
+  );
 
   const wordCreated = await api(
     'POST',

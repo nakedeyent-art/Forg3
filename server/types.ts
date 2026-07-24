@@ -343,6 +343,7 @@ export type AuditEventType =
   | 'document.viewed'
   | 'document.signer_signed'
   | 'document.signed'
+  | 'document.signed_copy_sent'
   | 'document.link_rotated'
   | 'document.reminder_sent'
   | 'document.voided'
