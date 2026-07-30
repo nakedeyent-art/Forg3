@@ -2448,6 +2448,19 @@ async function sendEmailDelivery(input: {
   attachments?: EmailAttachment[];
 }): Promise<ProviderDeliveryResult> {
   const provider = normalizeProviderName(process.env.EMAIL_PROVIDER);
+  const reservedRecipientReason = getReservedRecipientReason(input.toEmail);
+  if (reservedRecipientReason) {
+    const senderEmail = normalizeEmailAddress(input.senderEmail);
+    const status = process.env.NODE_ENV === 'production' ? 'failed' : 'logged';
+    return {
+      status,
+      provider: 'reserved_recipient',
+      providerSenderEmail: senderEmail,
+      replyToEmail: senderEmail,
+      error: reservedRecipientReason
+    };
+  }
+
   if (!provider) {
     return {
       status: 'logged' as const,
@@ -2517,6 +2530,26 @@ async function sendEmailDelivery(input: {
   } catch (error) {
     return { status: 'failed' as const, provider, error: redactConfiguredSecrets(getErrorMessage(error)) };
   }
+}
+
+function getReservedRecipientReason(email: string) {
+  const normalizedEmail = normalizeEmailAddress(email);
+  const domain = normalizedEmail.split('@')[1] || '';
+
+  if (!domain) {
+    return '';
+  }
+
+  const lowerDomain = domain.toLowerCase();
+  const reservedTlds = ['test', 'example', 'invalid', 'localhost'];
+  const reservedSecondLevelDomains = ['example.com', 'example.net', 'example.org'];
+  const reservedTld = reservedTlds.find((tld) => lowerDomain === tld || lowerDomain.endsWith(`.${tld}`));
+
+  if (reservedTld || reservedSecondLevelDomains.includes(lowerDomain)) {
+    return `Recipient address uses reserved email domain ${lowerDomain}; external delivery skipped.`;
+  }
+
+  return '';
 }
 
 async function sendMicrosoftGraphEmail(input: {

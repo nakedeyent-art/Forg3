@@ -73,6 +73,17 @@ async function run() {
       publicPlans.body.plans?.some((plan) => plan.appleProductId === 'com.forg3.sign.business.monthly')
   );
 
+  const reservedLoginStart = await api('POST', '/api/auth/email/start', {
+    email: 'reserved-login@forg3.test',
+    name: 'Reserved Login'
+  });
+  check(
+    'reserved test-domain login code stays local',
+    reservedLoginStart.status === 201 &&
+      reservedLoginStart.body.deliveryProvider === 'reserved_recipient' &&
+      Boolean(reservedLoginStart.body.devCode)
+  );
+
   // Email-code login for the sender/owner.
   const ownerToken = await emailLogin(ownerEmail, 'Smoke Owner');
   check('email login issues a bearer token', Boolean(ownerToken));
