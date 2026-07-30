@@ -1,6 +1,6 @@
 # Forg3 Store Submission Packet
 
-Last updated: 2026-07-16
+Last updated: 2026-07-30
 
 ## App Identity
 
@@ -19,14 +19,14 @@ Last updated: 2026-07-16
 ## App Store Connect Status
 
 - App Store Connect app exists: `Forg3`, app id `6790994628`, bundle `com.forg3.sign`, SKU `com.forg3.sign`.
-- iOS version `1.0` exists and is `WAITING_FOR_REVIEW` as of 2026-07-16.
-- Build `3` is uploaded, `VALID`, and attached to iOS version `1.0`.
+- iOS version `1.0` exists and is `WAITING_FOR_REVIEW` as of `2026-07-30T09:42:09Z`.
+- Build `5` is uploaded, `VALID`, and attached to iOS version `1.0`.
 - Paid Apps Agreement, bank account, W-9, and Digital Services Act compliance are active.
 - App metadata is configured through API/UI: name, subtitle, privacy URL, description, keywords, support URL, screenshots, content-rights declaration, primary category `BUSINESS`, free app download pricing, and copyright `2026 NAK3D EYE ENTERPRISES`.
 - App Store screenshots are uploaded and asset-processed: 8 for `APP_IPHONE_67`, 8 for `APP_IPAD_PRO_3GEN_129`.
 - App Store age-rating answers are configured through the App Store Connect API: user-generated content is disclosed, and objectionable-content/web-access/gambling/chat/advertising answers are set to none/false.
-- App Review detail/contact, reviewer notes, and demo account are configured. Build `3` declares `usesNonExemptEncryption=false`; the iOS shell also includes `ITSAppUsesNonExemptEncryption=false` for future uploads. API status on 2026-07-16: iOS version `1.0` is `WAITING_FOR_REVIEW`, build `3` is attached/valid, review detail is present, age rating is configured, app privacy is published, and review submission `08bf5fb1-1e5b-4647-a651-b6a9bbcc7e32` has been sent to Apple.
-- Apple subscription group `Forg3 Plans` exists with group localization. `Forg3 Pro` and `Forg3 Business` are `WAITING_FOR_REVIEW` with Apple-equalized pricing across 175 territories and subscription review screenshots. Apple requires the first subscriptions to be submitted with the app version, and both launch subscriptions are included in the app review package.
+- App Review detail/contact, reviewer notes, and demo account are configured. Build `5` declares `usesNonExemptEncryption=false`; the iOS shell includes `ITSAppUsesNonExemptEncryption=false`. Apple rejected the prior package because the review/demo account could land in an active creator entitlement state and hide the Pro/Business StoreKit purchase cards after sign-in; native billing UI now keeps those StoreKit plan cards visible for creator/review accounts. API status on `2026-07-30T09:42:09Z`: iOS version `1.0` is `WAITING_FOR_REVIEW`, build `5` is attached/valid, review detail is present, age rating is configured, app privacy is published, and review submission `14bd210c-daa7-4e0f-9585-ca4e3090a2d3` is waiting for review.
+- Apple subscription group `Forg3 Plans` exists with group localization. `Forg3 Pro` and `Forg3 Business` are `WAITING_FOR_REVIEW` with Apple-equalized pricing across 175 territories and subscription review screenshots. Apple requires the first subscriptions to be submitted with the app version, and both launch subscriptions are included in review submission `14bd210c-daa7-4e0f-9585-ca4e3090a2d3`.
 - `Forg3 Pay Per Signature` is also configured in App Store Connect, but it remains hidden from the first native mobile launch until the per-signature usage model is packaged as store-managed credits or another approved model.
 
 ## Store Description
@@ -57,15 +57,18 @@ Pay Per Signature remains hidden in native iOS/Android builds until usage billin
 | Forg3 Business monthly | `com.forg3.sign.business.monthly` | `forg3_business_monthly` | Required |
 | Forg3 Pay Per Signature yearly | `com.forg3.sign.payper.yearly` | `forg3_pay_per_signature_yearly` | Web/staged only; hidden in native |
 
-## Google Play Internal Testing
+## Google Play Testing
 
-- Android `versionName` is `1.0`; internal Play upload number is `versionCode 3`.
-- Latest signed AAB: `.deploy/mobile/forg3-1.0-build3-play-release-20260718T145315Z.aab` (SHA-256 `a0ba27a83ac9356851ea0335325609a2da803bb946b7dd83f4d894797c52f4c4`).
-- Uploaded through `npm run play:internal` to track `internal` with release status `completed`; the Google Play Developer API accepted `Forg3 1.0 (3)` on 2026-07-18.
+- Android `versionName` is `1.0`; latest Play upload number is `versionCode 4`.
+- Latest signed AAB: `.deploy/mobile/forg3-1.0-build4-api36-play-release-20260729T174006Z.aab` (SHA-256 `48a05a53106e122df590a95a685ea37a722ae0ac526c25ecb6459596d1e1f656`).
+- Uploaded through `npm run play:internal` / `npm run play:track` to track `internal` with release status `completed`; the Google Play Developer API accepted `Forg3 1.0 (4)` on 2026-07-29.
 - Selected tester lists: `Forg3 Internal Testers` with 2 users (`st@nak3deye.com`, `SeanETerry@gmail.com`) plus `The Daily Edge Android List` with 7 users. Play Console shows both lists checked and saved on 2026-07-16.
 - Tester opt-in link: `https://play.google.com/apps/internaltest/4701195408144317865`.
 - Android Publisher API status on 2026-07-18: internal track upload completed for `Forg3 1.0 (3)`; `edits.testers` previously returned no Google Groups for the internal track. Play App content shows no pending declarations and 10 actioned declarations dated July 16, 2026. Default store listing is ready to send for review with the Forg3 app name, descriptions, icon, feature graphic, 8 phone screenshots, 8 7-inch tablet screenshots, and 8 10-inch tablet screenshots. Tester opt-in/install and sandbox purchase/restore testing are still pending on invited devices.
-- Google Play production access is still gated by Google: the app dashboard requires a closed test with at least 12 opted-in testers for at least 14 days before `Apply for production` becomes available.
+- Closed testing Alpha was configured and submitted through Play Console on 2026-07-28 at 23:13 EDT: release `3 (1.0)`, 177 countries/regions, tester lists `Forg3 Internal Testers` and `The Daily Edge Android List`, and 14 changes sent for review. Android Publisher API readback at `2026-07-29T03:14:36Z` showed `alpha=3 (1.0):completed`; Play dashboard showed update status `In review`.
+- Google Play target API issue from 2026-07-29 was addressed by raising `compileSdkVersion` and `targetSdkVersion` to Android 16 / API 36, rebuilding signed `versionCode 4`, and uploading it to both Internal and Alpha with release status `completed`. Android Publisher API readback at `2026-07-29T17:47:32Z` shows `internal=Forg3 1.0 (4):completed` and `alpha=Forg3 1.0 (4):completed`.
+- Closed-test join links: Android `https://play.google.com/store/apps/details?id=com.forg3.sign`; web opt-in `https://play.google.com/apps/testing/com.forg3.sign`.
+- Google Play production access is still gated by Google: the app dashboard requires a closed test with at least 12 opted-in testers for at least 14 days before `Apply for production` becomes available. Play dashboard showed `0 testers currently opted-in` and `Apply for production` disabled on 2026-07-28 at 23:16 EDT. Current configured email lists total 9 users, so at least 3 more eligible testers must be added and all 12 must opt in continuously.
 
 ## Required Sandbox Tests
 

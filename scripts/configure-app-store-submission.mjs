@@ -15,6 +15,12 @@ const appStoreContentRightsDeclaration =
   env.APP_STORE_CONTENT_RIGHTS_DECLARATION || 'DOES_NOT_USE_THIRD_PARTY_CONTENT';
 const appStorePrimaryCategory = env.APP_STORE_PRIMARY_CATEGORY || 'BUSINESS';
 const appStoreBaseTerritory = env.APP_STORE_BASE_TERRITORY || 'USA';
+const appStoreMarketingUrl = env.APP_STORE_MARKETING_URL || 'https://forg3.nak3deye.com/';
+const appStoreSupportUrl = env.APP_STORE_SUPPORT_URL || 'https://forg3.nak3deye.com/#/privacy';
+const appStoreTermsUrl = env.APP_STORE_TERMS_URL || 'https://forg3.nak3deye.com/#/terms';
+const appStorePrivacyUrl = env.APP_STORE_PRIVACY_URL || 'https://forg3.nak3deye.com/#/privacy';
+const appleStandardEulaUrl =
+  env.APP_STORE_EULA_URL || 'https://www.apple.com/legal/internet-services/itunes/dev/stdeula/';
 const launchSubscriptionProductIds = [
   'com.forg3.sign.pro.monthly',
   'com.forg3.sign.business.monthly'
@@ -70,6 +76,11 @@ async function main() {
     return;
   }
 
+  if (mode === 'attach-latest-build') {
+    await attachLatestValidBuild(app.id, version.id);
+    return;
+  }
+
   if (mode === 'metadata') {
     await configureSubmissionMetadata({ app, version, appInfo, primaryCategory, manualAppPrices });
     return;
@@ -85,7 +96,7 @@ async function main() {
     return;
   }
 
-  throw new Error(`Unknown mode "${mode}". Use status, configure, export-compliance, metadata, submit, or review-submit.`);
+  throw new Error(`Unknown mode "${mode}". Use status, configure, export-compliance, attach-latest-build, metadata, submit, or review-submit.`);
 }
 
 async function configure({ app, version, localization, reviewDetail, ageRating, build }) {
@@ -111,7 +122,9 @@ async function configure({ app, version, localization, reviewDetail, ageRating, 
           type: 'appStoreVersionLocalizations',
           id: localization.id,
           attributes: {
-            marketingUrl: env.APP_STORE_MARKETING_URL || 'https://forg3.nak3deye.com/',
+            description: appStoreDescription(),
+            marketingUrl: appStoreMarketingUrl,
+            supportUrl: appStoreSupportUrl,
             promotionalText:
               'Secure document e-signatures with email-verified recipient access, device verification, and sealed audit records.'
           }
@@ -124,10 +137,28 @@ async function configure({ app, version, localization, reviewDetail, ageRating, 
     await attachBuildBetaDetailIfAvailable(app.id, version.id, build.id);
   }
 
-  const contactFirstName = env.APP_STORE_REVIEW_FIRST_NAME || env.APP_REVIEW_FIRST_NAME || '';
-  const contactLastName = env.APP_STORE_REVIEW_LAST_NAME || env.APP_REVIEW_LAST_NAME || '';
-  const contactEmail = env.APP_STORE_REVIEW_EMAIL || env.APP_REVIEW_EMAIL || env.SUPPORT_EMAIL || 'st@nak3deye.com';
-  const contactPhone = env.APP_STORE_REVIEW_PHONE || env.APP_REVIEW_PHONE || '';
+  const existingReviewAttributes = reviewDetail?.attributes || {};
+  const contactFirstName =
+    env.APP_STORE_REVIEW_FIRST_NAME || env.APP_REVIEW_FIRST_NAME || existingReviewAttributes.contactFirstName || '';
+  const contactLastName =
+    env.APP_STORE_REVIEW_LAST_NAME || env.APP_REVIEW_LAST_NAME || existingReviewAttributes.contactLastName || '';
+  const contactEmail =
+    env.APP_STORE_REVIEW_EMAIL ||
+    env.APP_REVIEW_EMAIL ||
+    env.SUPPORT_EMAIL ||
+    existingReviewAttributes.contactEmail ||
+    'st@nak3deye.com';
+  const contactPhone = env.APP_STORE_REVIEW_PHONE || env.APP_REVIEW_PHONE || existingReviewAttributes.contactPhone || '';
+  const demoAccountName =
+    env.APP_STORE_REVIEW_DEMO_ACCOUNT ||
+    env.FORG3_REVIEW_ACCESS_EMAIL ||
+    existingReviewAttributes.demoAccountName ||
+    '';
+  const demoAccountPassword =
+    env.APP_STORE_REVIEW_DEMO_PASSWORD ||
+    env.FORG3_REVIEW_ACCESS_CODE ||
+    existingReviewAttributes.demoAccountPassword ||
+    '';
 
   if (!contactFirstName) missing.push('APP_STORE_REVIEW_FIRST_NAME');
   if (!contactLastName) missing.push('APP_STORE_REVIEW_LAST_NAME');
@@ -147,13 +178,17 @@ async function configure({ app, version, localization, reviewDetail, ageRating, 
         contactFirstName,
         contactLastName,
         contactPhone,
-        contactEmail
+        contactEmail,
+        demoAccountName,
+        demoAccountPassword
       })
     : await createReviewDetail(version.id, {
         contactFirstName,
         contactLastName,
         contactPhone,
-        contactEmail
+        contactEmail,
+        demoAccountName,
+        demoAccountPassword
       });
 
   console.log(`Configured App Review contact, notes, localization polish, and age rating for ${app.attributes.name} ${version.attributes.versionString}.`);
@@ -198,10 +233,14 @@ async function updateReviewDetail(reviewDetailId, contact) {
   return response.data;
 }
 
-function reviewDetailAttributes({ contactFirstName, contactLastName, contactPhone, contactEmail }) {
-  const demoAccountName = env.APP_STORE_REVIEW_DEMO_ACCOUNT || env.FORG3_REVIEW_ACCESS_EMAIL || '';
-  const demoAccountPassword = env.APP_STORE_REVIEW_DEMO_PASSWORD || env.FORG3_REVIEW_ACCESS_CODE || '';
-
+function reviewDetailAttributes({
+  contactFirstName,
+  contactLastName,
+  contactPhone,
+  contactEmail,
+  demoAccountName = '',
+  demoAccountPassword = ''
+}) {
   return {
     contactFirstName,
     contactLastName,
@@ -233,6 +272,8 @@ async function configureAgeRating(ageRatingId) {
     profanityOrCrudeHumor: 'NONE',
     sexualContentGraphicAndNudity: 'NONE',
     sexualContentOrNudity: 'NONE',
+    socialMedia: false,
+    socialMediaAgeRestricted: false,
     unrestrictedWebAccess: false,
     userGeneratedContent: true,
     violenceCartoonOrFantasy: 'NONE',
@@ -265,6 +306,30 @@ async function attachBuildBetaDetailIfAvailable(appId, versionId, buildId) {
       }
     }
   });
+}
+
+async function attachLatestValidBuild(appId, versionId) {
+  const buildNumber = env.APP_STORE_BUILD_NUMBER || env.IOS_BUILD_NUMBER || '';
+  const params = new URLSearchParams({
+    'filter[app]': appId,
+    'filter[processingState]': 'VALID',
+    limit: '10',
+    sort: '-uploadedDate'
+  });
+  if (buildNumber) {
+    params.set('filter[version]', buildNumber);
+  }
+
+  const response = await api(`/v1/builds?${params}`);
+  const latestBuild = response.data?.[0];
+  if (!latestBuild?.id) {
+    throw new Error(buildNumber
+      ? `No valid App Store Connect build found for build number ${buildNumber}.`
+      : 'No valid App Store Connect builds found.');
+  }
+
+  await attachBuildBetaDetailIfAvailable(appId, versionId, latestBuild.id);
+  console.log(`Attached build ${latestBuild.attributes?.version || latestBuild.id} to App Store version ${versionString}.`);
 }
 
 async function configureExportCompliance({ build, buildDetail }) {
@@ -332,6 +397,24 @@ async function configureSubmissionMetadata({ app, version, appInfo, primaryCateg
     console.log(`Set copyright to ${appStoreCopyright}.`);
   } else {
     console.log(`Copyright already set to ${appStoreCopyright}.`);
+  }
+
+  if (version.attributes?.usesIdfa !== false) {
+    await api(`/v1/appStoreVersions/${version.id}`, {
+      method: 'PATCH',
+      body: {
+        data: {
+          type: 'appStoreVersions',
+          id: version.id,
+          attributes: {
+            usesIdfa: false
+          }
+        }
+      }
+    });
+    console.log('Set Advertising Identifier usage to false.');
+  } else {
+    console.log('Advertising Identifier usage already set to false.');
   }
 
   if (primaryCategory?.id !== appStorePrimaryCategory) {
@@ -413,8 +496,11 @@ async function submitReviewPackage({ app, version, reviewDetail, ageRating, buil
   if (buildDetail?.attributes?.usesNonExemptEncryption !== false) {
     blockers.push('attached build does not declare usesNonExemptEncryption=false');
   }
-  if (version.attributes?.appStoreState !== 'PREPARE_FOR_SUBMISSION') {
-    blockers.push(`App Store version is ${version.attributes?.appStoreState || 'state unknown'}, not PREPARE_FOR_SUBMISSION`);
+  const reviewableVersionStates = new Set(['PREPARE_FOR_SUBMISSION', 'REJECTED']);
+  if (!reviewableVersionStates.has(version.attributes?.appStoreState)) {
+    blockers.push(
+      `App Store version is ${version.attributes?.appStoreState || 'state unknown'}, not PREPARE_FOR_SUBMISSION or REJECTED`
+    );
   }
 
   if (blockers.length) {
@@ -426,12 +512,18 @@ async function submitReviewPackage({ app, version, reviewDetail, ageRating, buil
 
   const activeReviewSubmission = reviewSubmissions.find((candidate) => {
     const attributes = candidate.attributes || {};
-    return !attributes.submitted && !attributes.canceled;
+    return attributes.state === 'READY_FOR_REVIEW' && !attributes.submitted && !attributes.canceled;
   });
 
   const reviewSubmission = activeReviewSubmission || await createReviewSubmission(app.id);
   console.log(`Review submission: ${reviewSubmission.id}${activeReviewSubmission ? ' (existing draft)' : ' (created)'}`);
 
+  await pruneReviewSubmissionItems(
+    reviewSubmission.id,
+    'appStoreVersion',
+    'appStoreVersions',
+    new Set()
+  );
   await createReviewSubmissionItem(reviewSubmission.id, 'appStoreVersion', 'appStoreVersions', version.id);
   console.log(`Included app version ${version.attributes.versionString}.`);
 
@@ -444,10 +536,9 @@ async function submitReviewPackage({ app, version, reviewDetail, ageRating, buil
     relatedType: 'subscriptionGroups',
     relatedId: group.id
   });
-  await createReviewSubmissionItem(reviewSubmission.id, 'subscriptionGroupVersion', 'subscriptionGroupVersions', groupVersion.id);
-  console.log(`Included subscription group ${group.attributes?.referenceName || group.id}.`);
 
   const subscriptions = await listSubscriptions(group.id);
+  const subscriptionVersions = [];
   for (const productId of launchSubscriptionProductIds) {
     const subscription = subscriptions.find((candidate) => candidate.attributes?.productId === productId);
     if (!subscription) {
@@ -462,7 +553,26 @@ async function submitReviewPackage({ app, version, reviewDetail, ageRating, buil
       relatedType: 'subscriptions',
       relatedId: subscription.id
     });
+    subscriptionVersions.push({ productId, version: subscriptionVersion });
+  }
 
+  await pruneReviewSubmissionItems(
+    reviewSubmission.id,
+    'subscriptionGroupVersion',
+    'subscriptionGroupVersions',
+    new Set([groupVersion.id])
+  );
+  await pruneReviewSubmissionItems(
+    reviewSubmission.id,
+    'subscriptionVersion',
+    'subscriptionVersions',
+    new Set(subscriptionVersions.map((entry) => entry.version.id))
+  );
+
+  await createReviewSubmissionItem(reviewSubmission.id, 'subscriptionGroupVersion', 'subscriptionGroupVersions', groupVersion.id);
+  console.log(`Included subscription group ${group.attributes?.referenceName || group.id}.`);
+
+  for (const { productId, version: subscriptionVersion } of subscriptionVersions) {
     await createReviewSubmissionItem(reviewSubmission.id, 'subscriptionVersion', 'subscriptionVersions', subscriptionVersion.id);
     console.log(`Included ${productId}.`);
   }
@@ -486,10 +596,24 @@ async function submitReviewPackage({ app, version, reviewDetail, ageRating, buil
 function appReviewNotes() {
   return [
     'Forg3 is a secure e-signature app for PDF, Word, Excel, PowerPoint, and text documents. Review can sign in with the supplied email test account/code flow.',
+    'To locate In-App Purchases: launch Forg3, open the dashboard, tap Plans in the top bar, then review the Subscription section. Before sign-in the plan cards are visible but purchase buttons say Sign in to buy. After signing in and completing device verification, tap Forg3 Pro or Forg3 Business; the button opens the App Store sandbox purchase sheet.',
+    `Terms of Use (EULA) is included in the App Store description: ${appleStandardEulaUrl}`,
+    'The submitted Apple subscription product identifiers are com.forg3.sign.pro.monthly for Forg3 Pro and com.forg3.sign.business.monthly for Forg3 Business.',
     'New devices require device verification before account documents or recipient rooms open.',
     'A paid subscription is required before non-creator accounts can send signature requests. Recipients can sign assigned documents without a paid subscription.',
     'Account deletion is available in Account settings and permanently removes documents, files, devices, sessions, and account history.',
     'Forg3 creates electronic signature stamps and audit certificate pages; it does not claim notarization or CA-backed PAdES signatures unless a production certificate provider is configured.'
+  ].join('\n\n');
+}
+
+function appStoreDescription() {
+  return [
+    'Forg3 is a secure e-signature app for sending PDF, Word, Excel, PowerPoint, text, RTF, and CSV documents to assigned recipients by email. Senders upload a document, choose the recipient, and Forg3 delivers an email link that only the addressed recipient can open after email and device verification.',
+    'Completed signing packets are sealed into downloadable records with signature metadata, document hashes, timestamps, and an audit certificate page. Paid sender plans unlock signature requests while recipients can review and sign assigned documents without a paid sender subscription.',
+    'Auto-renewable subscriptions are available for Forg3 Pro Monthly and Forg3 Business Monthly. Payment is charged to your Apple ID account at confirmation of purchase. Subscriptions renew automatically unless canceled at least 24 hours before the end of the current period. You can manage or cancel subscriptions in your App Store account settings.',
+    `Terms of Use (EULA): ${appleStandardEulaUrl}`,
+    `Forg3 Terms: ${appStoreTermsUrl}`,
+    `Privacy Policy: ${appStorePrivacyUrl}`
   ].join('\n\n');
 }
 
@@ -692,27 +816,50 @@ async function getFreeAppPricePoint(appId, territoryId) {
 
 async function getLatestVersionOrCreate({ relationshipPath, createPath, createType, relationshipName, relatedType, relatedId }) {
   const existing = await api(relationshipPath);
-  const usable = (existing.data || []).find((version) => version.attributes?.state === 'PREPARE_FOR_SUBMISSION') || existing.data?.[0];
+  const usable = (existing.data || []).find((version) => version.attributes?.state === 'PREPARE_FOR_SUBMISSION');
   if (usable) return usable;
 
-  const response = await api(createPath, {
-    method: 'POST',
-    body: {
-      data: {
-        type: createType,
-        relationships: {
-          [relationshipName]: {
-            data: {
-              type: relatedType,
-              id: relatedId
+  try {
+    const response = await api(createPath, {
+      method: 'POST',
+      body: {
+        data: {
+          type: createType,
+          relationships: {
+            [relationshipName]: {
+              data: {
+                type: relatedType,
+                id: relatedId
+              }
             }
           }
         }
       }
-    }
-  });
+    });
 
-  return response.data;
+    return response.data;
+  } catch (error) {
+    const alreadyExists = error.status === 409 &&
+      error.body?.errors?.some((entry) => entry.code === 'STATE_ERROR.ALREADY_EXISTS');
+    if (alreadyExists && existing.data?.[0]) {
+      return existing.data[0];
+    }
+    throw error;
+  }
+}
+
+async function pruneReviewSubmissionItems(reviewSubmissionId, relationshipName, relatedType, keepIds) {
+  const response = await api(
+    `/v1/reviewSubmissions/${reviewSubmissionId}/items?limit=50&include=appStoreVersion,subscriptionVersion,subscriptionGroupVersion`
+  );
+
+  for (const item of response.data || []) {
+    const related = item.relationships?.[relationshipName]?.data;
+    if (related?.type !== relatedType || keepIds.has(related.id)) continue;
+
+    await api(`/v1/reviewSubmissionItems/${item.id}`, { method: 'DELETE' });
+    console.log(`Removed stale review item: ${relatedType}/${related.id}`);
+  }
 }
 
 async function createReviewSubmissionItem(reviewSubmissionId, relationshipName, relatedType, relatedId) {

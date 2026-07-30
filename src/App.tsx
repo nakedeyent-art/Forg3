@@ -40,6 +40,7 @@ import {
   getCompany,
   getFeatureStatus,
   getSubscription,
+  getSubscriptionPlans,
   getPublicSigningDocument,
   getSignedDocument,
   listEmailDeliveries,
@@ -123,6 +124,68 @@ const blankForm: CreateForm = {
   },
   identityVerificationRequired: false
 };
+
+const defaultSubscriptionPlans: SubscriptionPlan[] = [
+  {
+    id: 'forg3_pay_per_signature_annual',
+    name: 'Forg3 Pay Per Signature',
+    priceLabel: '$11.99',
+    cadence: 'year',
+    billingModel: 'metered',
+    packetLimit: null,
+    seatLimit: 1,
+    unlimitedAccess: false,
+    appleProductId: 'com.forg3.sign.payper.yearly',
+    googleProductId: 'forg3_pay_per_signature_yearly',
+    usagePriceCents: 99,
+    usagePriceLabel: '$0.99/signature',
+    billingNote: '$11.99 yearly base plus a charge for each completed signature.',
+    features: [
+      '$11.99 paid yearly',
+      '$0.99 per completed signature',
+      'Automatic signing-link email outbox',
+      'Metered access for occasional packet sending'
+    ]
+  },
+  {
+    id: 'forg3_pro_monthly',
+    name: 'Forg3 Pro',
+    priceLabel: '$18.99',
+    cadence: 'month',
+    billingModel: 'flat',
+    packetLimit: 50,
+    seatLimit: 1,
+    unlimitedAccess: false,
+    appleProductId: 'com.forg3.sign.pro.monthly',
+    googleProductId: 'forg3_pro_monthly',
+    billingNote: 'Flat monthly access for consistent single-owner use, capped below unlimited tier.',
+    features: [
+      '50 signature packets per month',
+      'Multi-signer routing',
+      'Signature target placement',
+      'Templates and reminders'
+    ]
+  },
+  {
+    id: 'forg3_business_monthly',
+    name: 'Forg3 Business',
+    priceLabel: '$39.99',
+    cadence: 'month',
+    billingModel: 'flat',
+    packetLimit: null,
+    seatLimit: 5,
+    unlimitedAccess: true,
+    appleProductId: 'com.forg3.sign.business.monthly',
+    googleProductId: 'forg3_business_monthly',
+    billingNote: 'Flat monthly access for teams.',
+    features: [
+      'Everything in Pro',
+      'Unlimited access for highest tier',
+      'Company admin controls',
+      'ID verification attestation'
+    ]
+  }
+];
 
 const acceptedDocumentTypes = [
   '.pdf',
@@ -319,7 +382,7 @@ function Dashboard() {
   const [message, setMessage] = useState('');
   const [latestLinks, setLatestLinks] = useState<Array<{ documentId: string; signerName: string; signerEmail: string; url: string }>>([]);
   const [entitlement, setEntitlement] = useState<SubscriptionEntitlement | null>(null);
-  const [plans, setPlans] = useState<SubscriptionPlan[]>([]);
+  const [plans, setPlans] = useState<SubscriptionPlan[]>(defaultSubscriptionPlans);
   const [featureStatus, setFeatureStatus] = useState<FeatureStatus | null>(null);
   const [capabilities, setCapabilities] = useState<Record<string, boolean>>({});
   const [deliveries, setDeliveries] = useState<EmailDelivery[]>([]);
@@ -337,10 +400,14 @@ function Dashboard() {
   );
 
   useEffect(() => {
+    void refreshSubscriptionPlans(setPlans);
+  }, []);
+
+  useEffect(() => {
     if (!session || !deviceVerified) {
       setDocuments([]);
       setEntitlement(null);
-      setPlans([]);
+      setPlans(defaultSubscriptionPlans);
       setFeatureStatus(null);
       setCapabilities({});
       setDeliveries([]);
@@ -777,7 +844,7 @@ function Dashboard() {
     setDeviceVerified(false);
     setDocuments([]);
     setEntitlement(null);
-    setPlans([]);
+    setPlans(defaultSubscriptionPlans);
     setFeatureStatus(null);
     setCapabilities({});
     setDeliveries([]);
@@ -809,6 +876,14 @@ function Dashboard() {
         </a>
 
         <div className="top-actions">
+          <button
+            type="button"
+            className="secondary-button top-link"
+            onClick={() => document.getElementById('sender-plans')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+          >
+            <ReceiptText size={15} />
+            Plans
+          </button>
           <a className="secondary-button top-link" href="#/inbox">
             <Inbox size={15} />
             Recipient inbox
@@ -1807,9 +1882,10 @@ function SubscriptionPanel({
   const usageSummary = entitlement?.usageSummary;
   const storePlans = getVisiblePlansForRuntime(plans);
   const nativeStoreBilling = isNativeStoreBillingRuntime();
+  const showStorePlanCards = !entitlement?.active || (nativeStoreBilling && Boolean(entitlement?.creatorAccess));
 
   return (
-    <section className="billing-panel">
+    <section id="sender-plans" className="billing-panel">
       <div className="billing-summary">
         <div>
           <span className="eyebrow">Subscription</span>
@@ -1835,7 +1911,7 @@ function SubscriptionPanel({
         </button>
       )}
 
-      {entitlement?.active ? (
+      {entitlement?.active && (
         <div className="billing-active-row">
           <div className="billing-active-copy">
             <strong>{getEntitlementPriceLine(entitlement)}</strong>
@@ -1885,7 +1961,9 @@ function SubscriptionPanel({
             </div>
           )}
         </div>
-      ) : (
+      )}
+
+      {showStorePlanCards && (
         <>
           <div className="plan-grid">
             {storePlans.map((plan) => (
@@ -1910,7 +1988,7 @@ function SubscriptionPanel({
                   disabled={!signedIn || busy === `subscribe-${plan.id}`}
                 >
                   {busy === `subscribe-${plan.id}` ? <Loader2 className="spin" size={17} /> : <CreditCard size={17} />}
-                  {getBillingButtonLabel()}
+                  {getBillingButtonLabel(signedIn)}
                 </button>
               </article>
             ))}
@@ -2364,6 +2442,17 @@ async function refreshSignerInbox(
   }
 }
 
+async function refreshSubscriptionPlans(setPlans: (plans: SubscriptionPlan[]) => void) {
+  try {
+    const response = await getSubscriptionPlans();
+    if (response.plans.length) {
+      setPlans(response.plans);
+    }
+  } catch {
+    setPlans(defaultSubscriptionPlans);
+  }
+}
+
 async function refreshSubscription(
   setEntitlement: (entitlement: SubscriptionEntitlement) => void,
   setPlans: (plans: SubscriptionPlan[]) => void,
@@ -2680,7 +2769,11 @@ function getVisiblePlansForRuntime(plans: SubscriptionPlan[]) {
   return plans.filter((plan) => plan.billingModel === 'flat');
 }
 
-function getBillingButtonLabel() {
+function getBillingButtonLabel(signedIn: boolean) {
+  if (!signedIn) {
+    return 'Sign in to buy';
+  }
+
   if (import.meta.env.DEV) {
     return 'Start demo';
   }

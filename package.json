@@ -22,6 +22,9 @@
     "appstore:submission": "node scripts/configure-app-store-submission.mjs",
     "play:products": "node scripts/configure-google-play-products.mjs",
     "play:internal": "node scripts/upload-google-play-internal.mjs",
+    "play:track": "node scripts/configure-google-play-track.mjs",
+    "store:monitor": "node scripts/monitor-store-review.mjs",
+    "store:monitor:install": "node scripts/install-store-review-monitor-launchagent.mjs",
     "cap:sync": "npm run build && cap sync",
     "ios:open": "npm run cap:sync && cap open ios",
     "android:open": "npm run cap:sync && cap open android"

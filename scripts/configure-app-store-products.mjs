@@ -49,11 +49,11 @@ async function main() {
     return;
   }
 
-  if (mode !== 'configure') {
-    throw new Error(`Unknown mode "${mode}". Use configure or status.`);
+  if (!['configure', 'review-notes'].includes(mode)) {
+    throw new Error(`Unknown mode "${mode}". Use configure, review-notes, or status.`);
   }
 
-  if (!fs.existsSync(reviewScreenshotPath)) {
+  if (mode === 'configure' && !fs.existsSync(reviewScreenshotPath)) {
     throw new Error(`Subscription review screenshot is missing at ${path.relative(rootDir, reviewScreenshotPath)}.`);
   }
 
@@ -70,10 +70,16 @@ async function main() {
 
     await updateSubscriptionReviewNote(subscription.id, product);
     await upsertLocalization(subscription.id, product);
-    await setPrices(subscription.id, product.usaPrice);
-    await replaceReviewScreenshot(subscription.id, reviewScreenshotPath);
+    if (mode === 'configure') {
+      await setPrices(subscription.id, product.usaPrice);
+      await replaceReviewScreenshot(subscription.id, reviewScreenshotPath);
+    }
 
-    console.log(`${product.productId}: localization, USA price ${product.usaPrice}, and review screenshot configured.`);
+    console.log(
+      mode === 'configure'
+        ? `${product.productId}: localization, USA price ${product.usaPrice}, and review screenshot configured.`
+        : `${product.productId}: review note checked; localization updated when Apple state allowed it.`
+    );
   }
 
   await printStatus(group.id);
@@ -108,18 +114,25 @@ async function upsertGroupLocalization(groupId) {
   const localization = existing.data?.find((candidate) => candidate.attributes?.locale === 'en-US');
 
   if (localization) {
-    await api(`/v1/subscriptionGroupLocalizations/${localization.id}`, {
-      method: 'PATCH',
-      body: {
-        data: {
-          type: 'subscriptionGroupLocalizations',
-          id: localization.id,
-          attributes: {
-            name: 'Forg3 Plans'
+    try {
+      await api(`/v1/subscriptionGroupLocalizations/${localization.id}`, {
+        method: 'PATCH',
+        body: {
+          data: {
+            type: 'subscriptionGroupLocalizations',
+            id: localization.id,
+            attributes: {
+              name: 'Forg3 Plans'
+            }
           }
         }
+      });
+    } catch (error) {
+      if (!isUnmodifiableEntityError(error)) {
+        throw error;
       }
-    });
+      console.warn('Forg3 Plans: existing en-US localization cannot be edited in the current App Store review state.');
+    }
     return;
   }
 
@@ -151,6 +164,8 @@ async function listSubscriptions(groupId) {
 }
 
 async function updateSubscriptionReviewNote(subscriptionId, product) {
+  const reviewPath =
+    'Review path: launch Forg3, tap Plans in the top bar, sign in with the provided review account, complete device verification, then tap this plan in the Subscription section to open the App Store sandbox purchase sheet.';
   await api(`/v1/subscriptions/${subscriptionId}`, {
     method: 'PATCH',
     body: {
@@ -160,8 +175,8 @@ async function updateSubscriptionReviewNote(subscriptionId, product) {
         attributes: {
           reviewNote:
             product.productId === 'com.forg3.sign.payper.yearly'
-              ? 'Forg3 Pay Per Signature is prepared for the annual base plan. The first native launch presents Pro and Business only while per-signature credits are finalized as store-managed usage products.'
-              : 'Forg3 native subscription entitlement is verified server-side before creating or emailing signing requests.'
+              ? `Forg3 Pay Per Signature is prepared for the annual base plan. The first native launch presents Pro and Business only while per-signature credits are finalized as store-managed usage products. ${reviewPath}`
+              : `Forg3 native subscription entitlement is verified server-side before creating or emailing signing requests. ${reviewPath}`
         }
       }
     }
@@ -173,19 +188,28 @@ async function upsertLocalization(subscriptionId, product) {
   const localization = existing.data?.find((candidate) => candidate.attributes?.locale === 'en-US');
 
   if (localization) {
-    await api(`/v1/subscriptionLocalizations/${localization.id}`, {
-      method: 'PATCH',
-      body: {
-        data: {
-          type: 'subscriptionLocalizations',
-          id: localization.id,
-          attributes: {
-            name: product.displayName,
-            description: product.description
+    try {
+      await api(`/v1/subscriptionLocalizations/${localization.id}`, {
+        method: 'PATCH',
+        body: {
+          data: {
+            type: 'subscriptionLocalizations',
+            id: localization.id,
+            attributes: {
+              name: product.displayName,
+              description: product.description
+            }
           }
         }
+      });
+    } catch (error) {
+      if (!isUnmodifiableEntityError(error)) {
+        throw error;
       }
-    });
+      console.warn(
+        `${product.productId}: existing en-US localization is rejected and cannot be edited until the subscription is resubmitted.`
+      );
+    }
     return;
   }
 
@@ -420,28 +444,53 @@ async function printStatus(groupId) {
 }
 
 async function api(pathname, options = {}) {
-  const response = await fetch(`${apiBase}${pathname}`, {
-    method: options.method || 'GET',
-    headers: {
-      Authorization: `Bearer ${createJwt()}`,
-      ...(options.body ? { 'Content-Type': 'application/json' } : {})
-    },
-    body: options.body ? JSON.stringify(options.body) : undefined
-  });
+  const maxAttempts = options.maxAttempts || 3;
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    const response = await fetch(`${apiBase}${pathname}`, {
+      method: options.method || 'GET',
+      headers: {
+        Authorization: `Bearer ${createJwt()}`,
+        ...(options.body ? { 'Content-Type': 'application/json' } : {})
+      },
+      body: options.body ? JSON.stringify(options.body) : undefined
+    });
+    const parsed = await parseResponse(response);
+
+    if (response.ok) {
+      return parsed;
+    }
+
+    const retryable = response.status === 429 || response.status >= 500;
+    if (retryable && attempt < maxAttempts) {
+      await delay(attempt * 1500);
+      continue;
+    }
+
+    throw new Error(`${options.method || 'GET'} ${pathname} failed (${response.status}): ${JSON.stringify(parsed).slice(0, 900)}`);
+  }
+
+  throw new Error(`${options.method || 'GET'} ${pathname} failed after ${maxAttempts} attempts.`);
+}
+
+async function parseResponse(response) {
   const text = await response.text();
-  let body = {};
 
   try {
-    body = text ? JSON.parse(text) : {};
+    return text ? JSON.parse(text) : {};
   } catch {
-    body = { raw: text };
+    return { raw: text };
   }
+}
 
-  if (!response.ok) {
-    throw new Error(`${options.method || 'GET'} ${pathname} failed (${response.status}): ${JSON.stringify(body).slice(0, 900)}`);
-  }
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
-  return body;
+function isUnmodifiableEntityError(error) {
+  return (
+    error instanceof Error &&
+    error.message.includes('ENTITY_ERROR.ATTRIBUTE.INVALID.UNMODIFIABLE')
+  );
 }
 
 function createJwt() {

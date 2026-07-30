@@ -13,6 +13,7 @@ import type {
   SignedDocumentResponse,
   SigningLinkResponse,
   SubscriptionResponse,
+  SubscriptionPlan,
   TotpStatus,
   TrustedDeviceSummary,
   BillingProvider
@@ -34,6 +35,10 @@ export async function createDocument(input: CreateDocumentInput) {
 
 export async function getSubscription() {
   return request<SubscriptionResponse>('/api/subscription');
+}
+
+export async function getSubscriptionPlans() {
+  return request<{ plans: SubscriptionPlan[] }>('/api/subscription/plans');
 }
 
 export async function getFeatureStatus() {

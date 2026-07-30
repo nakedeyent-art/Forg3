@@ -832,6 +832,12 @@ app.get('/api/documents', requireOwner, (request, response) => {
   });
 });
 
+app.get('/api/subscription/plans', (_request, response) => {
+  response.json({
+    plans: subscriptionPlans
+  });
+});
+
 app.get('/api/subscription', requireOwner, (request, response) => {
   response.json({
     entitlement: getRequestEntitlementContext(request.owner!.email, request).entitlement,

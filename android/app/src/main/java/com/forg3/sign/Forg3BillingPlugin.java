@@ -158,7 +158,7 @@ public class Forg3BillingPlugin extends Plugin implements PurchasesUpdatedListen
 
             List<ProductDetails> details = queryResult.getProductDetailsList();
             if (details.isEmpty()) {
-                call.reject("Store product is not configured or not available on this Play account.");
+                call.reject("Store product " + productId + " is not available in Google Play Billing. Confirm the subscription is active, published to the testing track, and this Google account is licensed for testing.");
                 return;
             }
 

@@ -65,6 +65,14 @@ async function run() {
   const health = await api('GET', '/api/health');
   check('health responds ok', health.status === 200 && health.body.ok === true);
 
+  const publicPlans = await api('GET', '/api/subscription/plans');
+  check(
+    'public subscription plans are visible before sign-in',
+    publicPlans.status === 200 &&
+      publicPlans.body.plans?.some((plan) => plan.appleProductId === 'com.forg3.sign.pro.monthly') &&
+      publicPlans.body.plans?.some((plan) => plan.appleProductId === 'com.forg3.sign.business.monthly')
+  );
+
   // Email-code login for the sender/owner.
   const ownerToken = await emailLogin(ownerEmail, 'Smoke Owner');
   check('email login issues a bearer token', Boolean(ownerToken));

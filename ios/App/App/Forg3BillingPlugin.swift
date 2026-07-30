@@ -28,7 +28,10 @@ public class Forg3BillingPlugin: CAPPlugin, CAPBridgedPlugin {
             do {
                 let products = try await Product.products(for: [productId])
                 guard let product = products.first else {
-                    reject(call, "Store product is not configured or not available for this App Store account.")
+                    reject(
+                        call,
+                        "Store product \(productId) is not available in the App Store sandbox. Confirm the subscription is attached to the review submission, cleared for sale, and the Paid Apps Agreement is active."
+                    )
                     return
                 }
 
