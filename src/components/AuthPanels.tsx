@@ -15,7 +15,13 @@ import {
 } from '../lib/auth';
 import type { AuthSession } from '../lib/types';
 
-export function AuthControls({ onSignedIn }: { onSignedIn: (session: AuthSession) => void }) {
+export function AuthControls({
+  onSignedIn,
+  variant = 'compact'
+}: {
+  onSignedIn: (session: AuthSession) => void;
+  variant?: 'compact' | 'page';
+}) {
   const [email, setEmail] = useState('');
   const [name, setName] = useState('');
   const [challengeId, setChallengeId] = useState('');
@@ -125,57 +131,92 @@ export function AuthControls({ onSignedIn }: { onSignedIn: (session: AuthSession
   };
 
   return (
-    <div className="auth-stack">
+    <div className={`auth-stack ${variant === 'page' ? 'auth-stack-page' : ''}`}>
       {showProviderButtons && (
         <div className="auth-buttons">
           <button type="button" onClick={() => void handleProviderSignIn('google')} disabled={busy === 'auth-google'}>
             {busy === 'auth-google' ? <Loader2 className="spin" size={16} /> : <KeyRound size={16} />}
-            Google
+            {variant === 'page' ? 'Continue with Google' : 'Google'}
           </button>
           <button type="button" onClick={() => void handleProviderSignIn('apple')} disabled={busy === 'auth-apple'}>
             {busy === 'auth-apple' ? <Loader2 className="spin" size={16} /> : <KeyRound size={16} />}
-            Apple
+            {variant === 'page' ? 'Continue with Apple' : 'Apple'}
           </button>
         </div>
       )}
 
+      {showProviderButtons && (
+        <div className="auth-divider">
+          <span>or use email</span>
+        </div>
+      )}
+
       <form className="email-auth-form" onSubmit={challengeId ? handleVerifyEmailCode : handleSendEmailCode}>
-        <input
-          type="email"
-          value={email}
-          onChange={(event) => setEmail(event.target.value)}
-          placeholder="you@example.com"
-          disabled={Boolean(challengeId)}
-        />
         {!challengeId && (
-          <input
-            value={name}
-            onChange={(event) => setName(event.target.value)}
-            placeholder="Name"
-          />
+          <label className="email-auth-field">
+            <span>Name</span>
+            <input
+              autoComplete="name"
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+              placeholder="Your name"
+            />
+          </label>
         )}
-        {challengeId && (
+        <label className="email-auth-field">
+          <span>Email address</span>
           <input
-            inputMode="numeric"
-            autoComplete="one-time-code"
-            value={code}
-            onChange={(event) => setCode(event.target.value.replace(/\D/g, '').slice(0, 6))}
-            placeholder="Email code"
+            type="email"
+            autoComplete="email"
+            value={email}
+            onChange={(event) => setEmail(event.target.value)}
+            placeholder="you@example.com"
+            disabled={Boolean(challengeId)}
           />
+        </label>
+        {challengeId && (
+          <label className="email-auth-field">
+            <span>Email verification code</span>
+            <input
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              value={code}
+              onChange={(event) => setCode(event.target.value.replace(/\D/g, '').slice(0, 6))}
+              placeholder="000000"
+            />
+          </label>
         )}
         {challengeId && totpRequired && (
-          <input
-            inputMode="numeric"
-            autoComplete="one-time-code"
-            value={totpCode}
-            onChange={(event) => setTotpCode(event.target.value.replace(/\D/g, '').slice(0, 6))}
-            placeholder="Authenticator code"
-          />
+          <label className="email-auth-field">
+            <span>Authenticator code</span>
+            <input
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              value={totpCode}
+              onChange={(event) => setTotpCode(event.target.value.replace(/\D/g, '').slice(0, 6))}
+              placeholder="000000"
+            />
+          </label>
         )}
         <button type="submit" disabled={busy === 'email-start' || busy === 'email-verify'}>
           {busy === 'email-start' || busy === 'email-verify' ? <Loader2 className="spin" size={16} /> : <Send size={16} />}
-          {challengeId ? 'Verify' : 'Email code'}
+          {challengeId ? 'Verify and continue' : 'Continue with email'}
         </button>
+        {challengeId && (
+          <button
+            className="auth-change-button"
+            type="button"
+            onClick={() => {
+              setChallengeId('');
+              setCode('');
+              setTotpCode('');
+              setTotpRequired(false);
+              setMessage('');
+            }}
+          >
+            Use a different email
+          </button>
+        )}
       </form>
       {totpRequired && (
         <div className="inline-note">

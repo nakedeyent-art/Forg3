@@ -2,6 +2,8 @@ import { type ChangeEvent, type FormEvent, useEffect, useMemo, useRef, useState 
 import { Capacitor } from '@capacitor/core';
 import {
   AlertCircle,
+  ArrowLeft,
+  ArrowRight,
   BookOpen,
   Building2,
   CheckCircle,
@@ -22,6 +24,7 @@ import {
   Loader2,
   Lock,
   LogOut,
+  Mail,
   PenLine,
   RefreshCcw,
   ReceiptText,
@@ -103,6 +106,7 @@ interface RouteState {
 }
 
 type DashboardView = 'overview' | 'send' | 'documents' | 'plans' | 'tools';
+type SendStep = 1 | 2 | 3 | 4;
 
 interface CreateForm {
   title: string;
@@ -380,7 +384,9 @@ export default function App() {
 function Dashboard() {
   const [session, setSession] = useState<AuthSession | null>(() => getStoredSession());
   const [deviceVerified, setDeviceVerified] = useState(false);
+  const [preAuthView, setPreAuthView] = useState<'login' | 'plans'>('login');
   const [dashboardView, setDashboardView] = useState<DashboardView>('overview');
+  const [sendStep, setSendStep] = useState<SendStep>(1);
   const [documents, setDocuments] = useState<DocumentSummary[]>([]);
   const [form, setForm] = useState<CreateForm>(blankForm);
   const [file, setFile] = useState<File | null>(null);
@@ -539,6 +545,7 @@ function Dashboard() {
       setForm(blankForm);
       setFile(null);
       setFileDataUrl('');
+      setSendStep(1);
       setDashboardView('documents');
       await refreshFeatureSuite(setFeatureStatus, setCapabilities, setDeliveries, setTemplates, setCompany);
       setMessage(
@@ -742,7 +749,27 @@ function Dashboard() {
   const openDashboardView = (view: DashboardView) => {
     setDashboardView(view);
     window.requestAnimationFrame(() => {
-      document.querySelector('.dashboard-shell')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    });
+  };
+
+  const moveSendWizard = (nextStep: SendStep) => {
+    if (nextStep > sendStep) {
+      if (sendStep === 1 && (!file || !fileDataUrl)) {
+        setMessage('Choose a document before continuing.');
+        return;
+      }
+
+      if (sendStep === 2 && (!form.signerName.trim() || !form.signerEmail.trim())) {
+        setMessage('Add the primary signer name and email before continuing.');
+        return;
+      }
+    }
+
+    setMessage('');
+    setSendStep(nextStep);
+    window.requestAnimationFrame(() => {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
     });
   };
 
@@ -829,6 +856,8 @@ function Dashboard() {
       signatureField: template.signatureField,
       identityVerificationRequired: template.identityVerificationRequired
     }));
+    setSendStep(2);
+    setDashboardView('send');
     setMessage('Template applied.');
   };
 
@@ -867,7 +896,30 @@ function Dashboard() {
     setCompany(null);
     setLatestLinks([]);
     setDashboardView('overview');
+    setSendStep(1);
   };
+
+  if (!session) {
+    if (preAuthView === 'plans') {
+      return (
+        <PublicPlansScreen
+          plans={plans}
+          onBack={() => setPreAuthView('login')}
+          onChoosePlan={() => {
+            setMessage('Sign in or create your account to choose a sender plan.');
+            setPreAuthView('login');
+          }}
+        />
+      );
+    }
+
+    return (
+      <LoginScreen
+        onSignedIn={setSession}
+        onShowPlans={() => setPreAuthView('plans')}
+      />
+    );
+  }
 
   if (session && !deviceVerified) {
     return (
@@ -887,19 +939,11 @@ function Dashboard() {
           <BrandMark />
           <span>
             <strong>Forg3</strong>
-            <small>Subscription e-signature desk</small>
+            <small>Secure e-signature workspace</small>
           </span>
         </a>
 
         <div className="top-actions">
-          <button
-            type="button"
-            className="secondary-button top-link"
-            onClick={() => openDashboardView('plans')}
-          >
-            <ReceiptText size={15} />
-            Plans
-          </button>
           <a className="secondary-button top-link" href="#/inbox">
             <Inbox size={15} />
             Recipient inbox
@@ -908,46 +952,17 @@ function Dashboard() {
             <ShieldCheck size={15} />
             Account
           </a>
-          <span className="runtime-pill">
-            <Smartphone size={15} />
-            {getBillingRuntimeLabel()}
-          </span>
-          {session ? (
-            <div className="session-pill">
-              <KeyRound size={15} />
-              <span>{session.name}</span>
-              <button type="button" className="icon-button" onClick={signOut} title="Sign out">
-                <LogOut size={16} />
-              </button>
-            </div>
-          ) : (
-            <AuthControls onSignedIn={setSession} />
-          )}
+          <div className="session-pill">
+            <KeyRound size={15} />
+            <span>{session.name}</span>
+            <button type="button" className="icon-button" onClick={signOut} title="Sign out">
+              <LogOut size={16} />
+            </button>
+          </div>
         </div>
       </header>
 
-      {!session && (
-        <section className="onboarding-banner">
-          <div>
-            <span className="eyebrow">Welcome</span>
-            <h2>Send a document for signature in three steps</h2>
-          </div>
-          <ol>
-            <li>
-              <strong>Create or access your free account.</strong> We send a one-time code — no password to remember.
-            </li>
-            <li>
-              <strong>Activate sender access.</strong> A paid sender plan unlocks document packets and email requests.
-            </li>
-            <li>
-              <strong>Recipients verify and sign free.</strong> Each recipient gets a private link addressed to their
-              email only.
-            </li>
-          </ol>
-        </section>
-      )}
-
-      <main className="dashboard-shell">
+      <div className="workspace-layout">
         <DashboardNavigation
           activeCount={activeCount}
           activeView={dashboardView}
@@ -956,6 +971,7 @@ function Dashboard() {
           signedCount={signedCount}
         />
 
+        <main className="dashboard-shell">
         {dashboardView === 'overview' && (
           <DashboardOverview
             activeCount={activeCount}
@@ -974,173 +990,302 @@ function Dashboard() {
               <div className="panel-heading">
                 <div>
                   <span className="eyebrow">New packet</span>
-                  <h1>Send a document for signature</h1>
+                  <h1>Prepare a signature request</h1>
                 </div>
                 <ShieldCheck size={24} />
               </div>
 
-              <form className="create-form" onSubmit={handleCreate}>
-                <label className="dropzone">
-                  <input accept={acceptedDocumentTypes} type="file" onChange={(event) => void handleFile(event)} />
-                  <Upload size={22} />
-                  <span>{file ? file.name : 'Choose document'}</span>
-                  {busy === 'file' && <Loader2 className="spin" size={17} />}
-                </label>
+              <PacketStepIndicator currentStep={sendStep} onSelect={moveSendWizard} />
 
-                <label>
-                  <span>Document title</span>
-                  <input
-                    value={form.title}
-                    onChange={(event) => setForm((current) => ({ ...current, title: event.target.value }))}
-                    placeholder="Client agreement"
-                  />
-                </label>
+              <form
+                className="create-form packet-wizard"
+                onSubmit={(event) => {
+                  if (sendStep === 4) {
+                    void handleCreate(event);
+                    return;
+                  }
 
-                <label>
-                  <span>Signer name</span>
-                  <input
-                    value={form.signerName}
-                    onChange={(event) => setForm((current) => ({ ...current, signerName: event.target.value }))}
-                    placeholder="Customer name"
-                  />
-                </label>
-
-                <label>
-                  <span>Signer email</span>
-                  <input
-                    type="email"
-                    value={form.signerEmail}
-                    onChange={(event) => setForm((current) => ({ ...current, signerEmail: event.target.value }))}
-                    placeholder="customer@example.com"
-                  />
-                </label>
-
-                <div className="feature-box">
-                  <div className="feature-box-heading">
-                    <span>Multi-signer routing</span>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setForm((current) => ({
-                          ...current,
-                          additionalSigners: [...current.additionalSigners, { name: '', email: '', role: 'Approver' }]
-                        }))
-                      }
-                      disabled={!capabilities.multiSigner}
-                    >
-                      <Users size={16} />
-                      Add signer
-                    </button>
+                  event.preventDefault();
+                  moveSendWizard((sendStep + 1) as SendStep);
+                }}
+              >
+                {sendStep === 1 && (
+                  <div className="wizard-step">
+                    <div className="wizard-step-heading">
+                      <span>Step 1 of 4</span>
+                      <h2>Choose the document</h2>
+                      <p>Forg3 accepts PDF, Word, Excel, PowerPoint, text, RTF, and CSV files.</p>
+                    </div>
+                    <label className="dropzone">
+                      <input accept={acceptedDocumentTypes} type="file" onChange={(event) => void handleFile(event)} />
+                      <Upload size={22} />
+                      <span>{file ? file.name : 'Choose document'}</span>
+                      {busy === 'file' && <Loader2 className="spin" size={17} />}
+                    </label>
+                    <label>
+                      <span>Document title</span>
+                      <input
+                        value={form.title}
+                        onChange={(event) => setForm((current) => ({ ...current, title: event.target.value }))}
+                        placeholder="Client agreement"
+                      />
+                    </label>
                   </div>
-                  {form.additionalSigners.map((signer, index) => (
-                    <div className="signer-mini-grid" key={`signer-${index}`}>
-                      <input
-                        value={signer.name}
+                )}
+
+                {sendStep === 2 && (
+                  <div className="wizard-step">
+                    <div className="wizard-step-heading">
+                      <span>Step 2 of 4</span>
+                      <h2>Add recipients</h2>
+                      <p>Each signer receives a private request addressed to their email.</p>
+                    </div>
+                    <div className="wizard-field-grid">
+                      <label>
+                        <span>Primary signer name</span>
+                        <input
+                          value={form.signerName}
+                          onChange={(event) => setForm((current) => ({ ...current, signerName: event.target.value }))}
+                          placeholder="Customer name"
+                        />
+                      </label>
+                      <label>
+                        <span>Primary signer email</span>
+                        <input
+                          type="email"
+                          value={form.signerEmail}
+                          onChange={(event) => setForm((current) => ({ ...current, signerEmail: event.target.value }))}
+                          placeholder="customer@example.com"
+                        />
+                      </label>
+                    </div>
+
+                    <div className="feature-box">
+                      <div className="feature-box-heading">
+                        <span>Additional signers</span>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setForm((current) => ({
+                              ...current,
+                              additionalSigners: [...current.additionalSigners, { name: '', email: '', role: 'Approver' }]
+                            }))
+                          }
+                          disabled={!capabilities.multiSigner}
+                        >
+                          <Users size={16} />
+                          Add signer
+                        </button>
+                      </div>
+                      {form.additionalSigners.map((signer, index) => (
+                        <div className="signer-mini-grid" key={`signer-${index}`}>
+                          <input
+                            value={signer.name}
+                            onChange={(event) =>
+                              setForm((current) => ({
+                                ...current,
+                                additionalSigners: current.additionalSigners.map((item, itemIndex) =>
+                                  itemIndex === index ? { ...item, name: event.target.value } : item
+                                )
+                              }))
+                            }
+                            placeholder="Additional signer"
+                          />
+                          <input
+                            type="email"
+                            value={signer.email}
+                            onChange={(event) =>
+                              setForm((current) => ({
+                                ...current,
+                                additionalSigners: current.additionalSigners.map((item, itemIndex) =>
+                                  itemIndex === index ? { ...item, email: event.target.value } : item
+                                )
+                              }))
+                            }
+                            placeholder="signer@example.com"
+                          />
+                          <input
+                            value={signer.role || ''}
+                            onChange={(event) =>
+                              setForm((current) => ({
+                                ...current,
+                                additionalSigners: current.additionalSigners.map((item, itemIndex) =>
+                                  itemIndex === index ? { ...item, role: event.target.value } : item
+                                )
+                              }))
+                            }
+                            placeholder="Role"
+                          />
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setForm((current) => ({
+                                ...current,
+                                additionalSigners: current.additionalSigners.filter((_, itemIndex) => itemIndex !== index)
+                              }))
+                            }
+                            title="Remove signer"
+                          >
+                            <X size={16} />
+                          </button>
+                        </div>
+                      ))}
+                      {!capabilities.multiSigner && <small>Pro or Business unlocks additional signers.</small>}
+                    </div>
+                  </div>
+                )}
+
+                {sendStep === 3 && (
+                  <div className="wizard-step">
+                    <div className="wizard-step-heading">
+                      <span>Step 3 of 4</span>
+                      <h2>Set signing rules</h2>
+                      <p>Place the signature target, set the deadline, and choose identity controls.</p>
+                    </div>
+                    <label>
+                      <span>Request expires in</span>
+                      <select
+                        value={form.expiresInHours}
                         onChange={(event) =>
-                          setForm((current) => ({
-                            ...current,
-                            additionalSigners: current.additionalSigners.map((item, itemIndex) =>
-                              itemIndex === index ? { ...item, name: event.target.value } : item
-                            )
-                          }))
+                          setForm((current) => ({ ...current, expiresInHours: Number(event.target.value) }))
                         }
-                        placeholder="Additional signer"
-                      />
-                      <input
-                        type="email"
-                        value={signer.email}
-                        onChange={(event) =>
-                          setForm((current) => ({
-                            ...current,
-                            additionalSigners: current.additionalSigners.map((item, itemIndex) =>
-                              itemIndex === index ? { ...item, email: event.target.value } : item
-                            )
-                          }))
-                        }
-                        placeholder="signer@example.com"
-                      />
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setForm((current) => ({
-                            ...current,
-                            additionalSigners: current.additionalSigners.filter((_, itemIndex) => itemIndex !== index)
-                          }))
-                        }
-                        title="Remove signer"
                       >
-                        <X size={16} />
+                        <option value={24}>24 hours</option>
+                        <option value={72}>3 days</option>
+                        <option value={168}>7 days</option>
+                        <option value={336}>14 days</option>
+                        <option value={720}>30 days</option>
+                      </select>
+                    </label>
+
+                    <FieldPlacementControl
+                      disabled={!capabilities.fieldPlacement}
+                      field={form.signatureField}
+                      onChange={(signatureField) => setForm((current) => ({ ...current, signatureField }))}
+                    />
+
+                    <label className="consent-row compact-toggle">
+                      <input
+                        type="checkbox"
+                        checked={form.identityVerificationRequired}
+                        disabled={!capabilities.idVerification}
+                        onChange={(event) =>
+                          setForm((current) => ({ ...current, identityVerificationRequired: event.target.checked }))
+                        }
+                      />
+                      <span>ID verification attestation {capabilities.idVerification ? '' : '(Business)'}</span>
+                    </label>
+                  </div>
+                )}
+
+                {sendStep === 4 && (
+                  <div className="wizard-step">
+                    <div className="wizard-step-heading">
+                      <span>Step 4 of 4</span>
+                      <h2>Review and send</h2>
+                      <p>Confirm the packet details before Forg3 emails the signer-specific access link.</p>
+                    </div>
+
+                    <div className="packet-review">
+                      <button type="button" onClick={() => moveSendWizard(1)}>
+                        <FileText size={18} />
+                        <span>
+                          <small>Document</small>
+                          <strong>{form.title || file?.name || 'Not selected'}</strong>
+                        </span>
+                        <PenLine size={15} />
+                      </button>
+                      <button type="button" onClick={() => moveSendWizard(2)}>
+                        <Users size={18} />
+                        <span>
+                          <small>Recipients</small>
+                          <strong>
+                            {form.signerName || 'No signer'} · {1 + form.additionalSigners.length} total
+                          </strong>
+                        </span>
+                        <PenLine size={15} />
+                      </button>
+                      <button type="button" onClick={() => moveSendWizard(3)}>
+                        <ShieldCheck size={18} />
+                        <span>
+                          <small>Signing rules</small>
+                          <strong>
+                            {describeSignatureTarget(form.signatureField)} · {form.expiresInHours} hours
+                          </strong>
+                        </span>
+                        <PenLine size={15} />
                       </button>
                     </div>
-                  ))}
-                  {!capabilities.multiSigner && <small>Pro or Business unlocks additional signers.</small>}
+
+                    <div className="trust-strip">
+                      <span>
+                        <Lock size={15} />
+                        Recipient-only access
+                      </span>
+                      <span>
+                        <Clock size={15} />
+                        Expiring link
+                      </span>
+                      <span>
+                        <ShieldCheck size={15} />
+                        Audit certificate
+                      </span>
+                    </div>
+
+                    {!entitlement?.active && (
+                      <button className="plan-required-callout" type="button" onClick={() => openDashboardView('plans')}>
+                        <CreditCard size={18} />
+                        <span>
+                          <strong>Sender plan required</strong>
+                          <small>Choose a plan before sending this packet.</small>
+                        </span>
+                        <ArrowRight size={16} />
+                      </button>
+                    )}
+                  </div>
+                )}
+
+                <div className="wizard-actions">
+                  {sendStep > 1 ? (
+                    <button
+                      className="secondary-button"
+                      type="button"
+                      onClick={() => moveSendWizard((sendStep - 1) as SendStep)}
+                    >
+                      <ArrowLeft size={16} />
+                      Back
+                    </button>
+                  ) : (
+                    <span />
+                  )}
+
+                  <div>
+                    {sendStep === 4 && (
+                      <button
+                        className="secondary-button"
+                        type="button"
+                        onClick={() => void handleSaveTemplate()}
+                        disabled={!capabilities.templates || busy === 'save-template'}
+                      >
+                        {busy === 'save-template' ? <Loader2 className="spin" size={16} /> : <FileCheck2 size={16} />}
+                        Save template
+                      </button>
+                    )}
+                    <button
+                      className="primary-button"
+                      type="submit"
+                      disabled={sendStep === 4 && (busy === 'create' || !entitlement?.active)}
+                    >
+                      {sendStep === 4 ? (
+                        busy === 'create' ? <Loader2 className="spin" size={17} /> : <Send size={17} />
+                      ) : (
+                        <ArrowRight size={17} />
+                      )}
+                      {sendStep === 4 ? 'Send request' : 'Continue'}
+                    </button>
+                  </div>
                 </div>
-
-                <label>
-                  <span>Expires in hours</span>
-                  <input
-                    type="number"
-                    min={1}
-                    max={720}
-                    value={form.expiresInHours}
-                    onChange={(event) =>
-                      setForm((current) => ({ ...current, expiresInHours: Number(event.target.value) }))
-                    }
-                  />
-                </label>
-
-                <FieldPlacementControl
-                  disabled={!capabilities.fieldPlacement}
-                  field={form.signatureField}
-                  onChange={(signatureField) => setForm((current) => ({ ...current, signatureField }))}
-                />
-
-                <label className="consent-row compact-toggle">
-                  <input
-                    type="checkbox"
-                    checked={form.identityVerificationRequired}
-                    disabled={!capabilities.idVerification}
-                    onChange={(event) =>
-                      setForm((current) => ({ ...current, identityVerificationRequired: event.target.checked }))
-                    }
-                  />
-                  <span>ID verification attestation {capabilities.idVerification ? '' : '(Business)'}</span>
-                </label>
-
-                <button
-                  className="secondary-button"
-                  type="button"
-                  onClick={() => void handleSaveTemplate()}
-                  disabled={!capabilities.templates || busy === 'save-template'}
-                >
-                  {busy === 'save-template' ? <Loader2 className="spin" size={16} /> : <FileCheck2 size={16} />}
-                  Save template
-                </button>
-
-                <button
-                  className="primary-button"
-                  type="submit"
-                  disabled={busy === 'create' || !session || !entitlement?.active}
-                >
-                  {busy === 'create' ? <Loader2 className="spin" size={17} /> : <LinkIcon size={17} />}
-                  Create link
-                </button>
               </form>
-
-              <div className="trust-strip">
-                <span>
-                  <Lock size={15} />
-                  Hash-only links
-                </span>
-                <span>
-                  <Clock size={15} />
-                  Expiring tokens
-                </span>
-                <span>
-                  <ShieldCheck size={15} />
-                  Audit certificate
-                </span>
-              </div>
 
               {!firebaseConfigured() && import.meta.env.DEV && (
                 <div className="inline-note">
@@ -1341,10 +1486,21 @@ function Dashboard() {
               setCompanyMember={setCompanyMember}
               templates={templates}
             />
-            <InstructionManual />
+            <details className="workspace-disclosure">
+              <summary>
+                <BookOpen size={18} />
+                <span>
+                  <strong>Help and feature guide</strong>
+                  <small>Instructions, plan matrix, and provider notes</small>
+                </span>
+                <ArrowRight size={16} />
+              </summary>
+              <InstructionManual />
+            </details>
           </section>
         )}
       </main>
+      </div>
 
       {message && (
         <div className="toast">
@@ -1355,6 +1511,163 @@ function Dashboard() {
         </div>
       )}
     </div>
+  );
+}
+
+function LoginScreen({
+  onSignedIn,
+  onShowPlans
+}: {
+  onSignedIn: (session: AuthSession) => void;
+  onShowPlans: () => void;
+}) {
+  return (
+    <div className="login-shell">
+      <section className="login-brand-panel" aria-labelledby="login-brand-title">
+        <div className="login-brand">
+          <BrandMark />
+          <span>
+            <strong>Forg3</strong>
+            <small>Secure e-signatures</small>
+          </span>
+        </div>
+
+        <div className="login-brand-copy">
+          <span className="eyebrow">Private by design</span>
+          <h1 id="login-brand-title">Documents move forward. Access stays controlled.</h1>
+          <p>
+            Send signature requests, verify recipients, and keep every completed packet in one discreet workspace.
+          </p>
+        </div>
+
+        <div className="login-assurances" aria-label="Forg3 security">
+          <span>
+            <ShieldCheck size={18} />
+            Device verification
+          </span>
+          <span>
+            <Mail size={18} />
+            Recipient-only email access
+          </span>
+          <span>
+            <FileCheck2 size={18} />
+            Sealed audit record
+          </span>
+        </div>
+
+        <div className="login-legal">
+          <a href="#/terms">Terms</a>
+          <a href="#/privacy">Privacy</a>
+        </div>
+      </section>
+
+      <main className="login-form-panel">
+        <section className="login-card" aria-labelledby="login-title">
+          <div className="login-card-heading">
+            <span className="eyebrow">Account access</span>
+            <h2 id="login-title">Sign in or create your account</h2>
+            <p>Use Apple, Google, or a secure one-time code sent to your email.</p>
+          </div>
+
+          <AuthControls onSignedIn={onSignedIn} variant="page" />
+
+          <div className="login-secondary-actions">
+            <a href="#/inbox">
+              <Inbox size={17} />
+              I received a document
+              <ArrowRight size={16} />
+            </a>
+            <button type="button" onClick={onShowPlans}>
+              <CreditCard size={17} />
+              View sender plans
+              <ArrowRight size={16} />
+            </button>
+          </div>
+
+          <p className="login-disclosure">
+            Recipients can review and sign for free. A paid plan is only required to send signature requests.
+          </p>
+        </section>
+      </main>
+    </div>
+  );
+}
+
+function PublicPlansScreen({
+  plans,
+  onBack,
+  onChoosePlan
+}: {
+  plans: SubscriptionPlan[];
+  onBack: () => void;
+  onChoosePlan: () => void;
+}) {
+  return (
+    <div className="public-plans-shell">
+      <header className="public-plans-header">
+        <div className="login-brand public-plans-brand">
+          <BrandMark />
+          <span>
+            <strong>Forg3</strong>
+            <small>Sender plans</small>
+          </span>
+        </div>
+        <button className="secondary-button" type="button" onClick={onBack}>
+          <ArrowLeft size={16} />
+          Back to sign in
+        </button>
+      </header>
+      <main className="public-plans-workspace">
+        <SubscriptionPanel
+          busy=""
+          entitlement={null}
+          onCancel={() => undefined}
+          onManage={() => undefined}
+          onRestore={() => undefined}
+          onStart={() => undefined}
+          onSignInRequested={onChoosePlan}
+          plans={plans}
+          signedIn={false}
+        />
+        <p className="public-plans-note">
+          Subscriptions renew automatically unless canceled through your App Store or Google Play account. Recipients
+          never need a paid plan to sign.
+        </p>
+      </main>
+    </div>
+  );
+}
+
+function PacketStepIndicator({
+  currentStep,
+  onSelect
+}: {
+  currentStep: SendStep;
+  onSelect: (step: SendStep) => void;
+}) {
+  const steps: Array<{ step: SendStep; label: string }> = [
+    { step: 1, label: 'Document' },
+    { step: 2, label: 'Recipients' },
+    { step: 3, label: 'Signing rules' },
+    { step: 4, label: 'Review' }
+  ];
+
+  return (
+    <nav className="packet-steps" aria-label="Signature request progress">
+      {steps.map((item) => (
+        <button
+          type="button"
+          key={item.step}
+          className={item.step === currentStep ? 'active' : item.step < currentStep ? 'complete' : undefined}
+          aria-current={item.step === currentStep ? 'step' : undefined}
+          disabled={item.step > currentStep}
+          onClick={() => onSelect(item.step)}
+        >
+          <span>{item.step < currentStep ? <CheckCircle size={15} /> : item.step}</span>
+          <strong>{item.label}</strong>
+        </button>
+      ))}
+    </nav>
   );
 }
 
@@ -2090,6 +2403,7 @@ function SubscriptionPanel({
   onManage,
   onRestore,
   onStart,
+  onSignInRequested,
   plans,
   signedIn
 }: {
@@ -2099,6 +2413,7 @@ function SubscriptionPanel({
   onManage: () => void;
   onRestore: () => void;
   onStart: (planId: PlanId) => void;
+  onSignInRequested?: () => void;
   plans: SubscriptionPlan[];
   signedIn: boolean;
 }) {
@@ -2208,8 +2523,8 @@ function SubscriptionPanel({
                 <button
                   className="primary-button"
                   type="button"
-                  onClick={() => onStart(plan.id)}
-                  disabled={!signedIn || busy === `subscribe-${plan.id}`}
+                  onClick={() => signedIn ? onStart(plan.id) : onSignInRequested?.()}
+                  disabled={busy === `subscribe-${plan.id}`}
                 >
                   {busy === `subscribe-${plan.id}` ? <Loader2 className="spin" size={17} /> : <CreditCard size={17} />}
                   {getBillingButtonLabel(signedIn)}
