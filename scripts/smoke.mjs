@@ -17,8 +17,9 @@ const reviewEmail = 'store-review@forg3.test';
 const reviewCode = '246810';
 const agentOverrideCode = 'smoke-agent-override';
 
-const serverEntry = fs.existsSync(path.resolve('dist-server/server/index.js'))
-  ? ['dist-server/server/index.js']
+const builtServerEntry = path.resolve('dist-server/server/index.js');
+const serverEntry = shouldUseBuiltServer(builtServerEntry)
+  ? [builtServerEntry]
   : ['--import', 'tsx', 'server/index.ts'];
 
 const server = spawn(process.execPath, serverEntry, {
@@ -89,6 +90,20 @@ async function run() {
 
   const pdfDataUrl = `data:application/pdf;base64,${buildMinimalPdfBase64()}`;
   const wordDataUrl = `data:application/vnd.openxmlformats-officedocument.wordprocessingml.document;base64,${buildFakeOfficeDocumentBase64()}`;
+  const fakePdfUpload = await api(
+    'POST',
+    '/api/documents',
+    {
+      title: 'Fake PDF Upload',
+      fileName: 'fake-upload.pdf',
+      fileType: 'application/pdf',
+      fileDataUrl: `data:application/pdf;base64,${Buffer.from('not a pdf', 'utf8').toString('base64')}`,
+      signers: [{ name: 'Smoke Signer', email: signerEmail }],
+      expiresInHours: 24
+    },
+    ownerToken
+  );
+  check('mislabeled PDF upload is rejected', fakePdfUpload.status === 400);
   const unpaidCreate = await api(
     'POST',
     '/api/documents',
@@ -208,11 +223,12 @@ async function run() {
       fileType: 'application/pdf',
       fileDataUrl: pdfDataUrl,
       signers: [{ name: 'Smoke Signer', email: signerEmail }],
+      signatureField: { page: 'last', xPercent: 100, yPercent: 5, widthPercent: 42, heightPercent: 7, kind: 'line' },
       expiresInHours: 24
     },
     ownerToken
   );
-  check('pay-per-signature plan can create a single-signer link', payPerCreated.status === 201 && createdLinkCount(payPerCreated.body) === 1);
+  check('pay-per-signature plan can create a single-signer link with a custom signature target', payPerCreated.status === 201 && createdLinkCount(payPerCreated.body) === 1);
 
   const payPerCancel = await api('POST', '/api/subscription/cancel', {}, ownerToken);
   check('canceling pay-per-signature removes active entitlement', payPerCancel.status === 200 && payPerCancel.body.entitlement?.active === false);
@@ -233,6 +249,7 @@ async function run() {
       fileType: 'application/pdf',
       fileDataUrl: pdfDataUrl,
       signers: [{ name: 'Smoke Signer', email: signerEmail }],
+      signatureField: { page: 'last', xPercent: 50, yPercent: 6, widthPercent: 68, heightPercent: 14, kind: 'box' },
       expiresInHours: 24
     },
     ownerToken
@@ -257,6 +274,7 @@ async function run() {
 
   const assigned = await api('GET', `/api/signer/documents/${documentId}/${signerId}`, undefined, signerToken);
   check('assigned signer can open the signing room', assigned.status === 200 && typeof assigned.body.fileDataUrl === 'string');
+  check('assigned signing room includes sender-selected signature target', assigned.body.document?.signatureField?.kind === 'box' && assigned.body.document.signatureField.widthPercent === 68);
 
   const wrongSigner = await api('GET', `/api/signer/documents/${documentId}/${signerId}`, undefined, ownerToken);
   check('non-matching email cannot open the signing room', wrongSigner.status === 404);
@@ -420,6 +438,33 @@ function createdLinkCount(body) {
   return Array.isArray(body?.signingLinks) ? body.signingLinks.length : 0;
 }
 
+function shouldUseBuiltServer(entryFile) {
+  if (!fs.existsSync(entryFile)) {
+    return false;
+  }
+
+  const builtAt = fs.statSync(entryFile).mtimeMs;
+  const sourceFiles = findFiles('server', (file) => file.endsWith('.ts'));
+  return sourceFiles.every((file) => fs.statSync(file).mtimeMs <= builtAt);
+}
+
+function findFiles(dir, predicate) {
+  if (!fs.existsSync(dir)) {
+    return [];
+  }
+
+  const output = [];
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const fullPath = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      output.push(...findFiles(fullPath, predicate));
+    } else if (predicate(fullPath)) {
+      output.push(fullPath);
+    }
+  }
+  return output;
+}
+
 function report() {
   console.log(`\n${passed} passed, ${failures.length} failed`);
   if (failures.length) {
@@ -485,7 +530,7 @@ startxref
 }
 
 function buildFakeOfficeDocumentBase64() {
-  return Buffer.from('Forg3 smoke document bytes', 'utf8').toString('base64');
+  return Buffer.from([0x50, 0x4b, 0x03, 0x04, 0x14, 0x00, 0x00, 0x00, 0x46, 0x6f, 0x72, 0x67, 0x33]).toString('base64');
 }
 
 function buildTinyPngBase64() {

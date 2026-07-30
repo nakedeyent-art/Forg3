@@ -15,6 +15,8 @@ interface SignatureFieldInput {
   xPercent: number;
   yPercent: number;
   widthPercent: number;
+  heightPercent?: number;
+  kind?: 'box' | 'line';
 }
 
 interface SealDocumentInput {
@@ -72,9 +74,12 @@ export async function sealPdfWithSignatures(input: SealDocumentInput) {
   const { width, height } = page.getSize();
   const regularFont = await pdfDoc.embedFont(StandardFonts.Helvetica);
   const boldFont = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
-  const field = input.signatureField || { page: 'last' as const, xPercent: 4, yPercent: 4, widthPercent: 88 };
+  const field = normalizeSignatureField(input.signatureField);
+  const fieldKind = field.kind || 'box';
   const panelWidth = clamp((width * field.widthPercent) / 100, 280, width - 48);
-  const panelHeight = clamp(56 + input.signers.length * 66, 122, Math.max(122, height - 48));
+  const requestedHeight = (height * field.heightPercent) / 100;
+  const minimumHeight = fieldKind === 'line' ? 72 + input.signers.length * 48 : 56 + input.signers.length * 66;
+  const panelHeight = clamp(Math.max(requestedHeight, minimumHeight), fieldKind === 'line' ? 96 : 122, Math.max(122, height - 48));
   const panelX = clamp(((width - panelWidth) * field.xPercent) / 100, 24, Math.max(24, width - panelWidth - 24));
   const panelY = clamp(((height - panelHeight) * field.yPercent) / 100, 24, Math.max(24, height - panelHeight - 24));
 
@@ -84,11 +89,11 @@ export async function sealPdfWithSignatures(input: SealDocumentInput) {
     width: panelWidth,
     height: panelHeight,
     color: rgb(1, 1, 1),
-    borderColor: rgb(0.09, 0.42, 0.53),
-    borderWidth: 1.2,
+    borderColor: fieldKind === 'line' ? rgb(0.83, 0.88, 0.9) : rgb(0.09, 0.42, 0.53),
+    borderWidth: fieldKind === 'line' ? 0.7 : 1.2,
     opacity: 0.96
   });
-  page.drawText('Electronic signature', {
+  page.drawText(fieldKind === 'line' ? 'Electronic signature line' : 'Electronic signature box', {
     x: panelX + 18,
     y: panelY + panelHeight - 24,
     size: 11,
@@ -96,13 +101,23 @@ export async function sealPdfWithSignatures(input: SealDocumentInput) {
     color: rgb(0.05, 0.07, 0.09)
   });
 
-  let rowY = panelY + panelHeight - 82;
+  let rowY = fieldKind === 'line' ? panelY + panelHeight - 58 : panelY + panelHeight - 82;
   for (const signer of input.signers) {
     const signatureImage = await pdfDoc.embedPng(dataUrlToBytes(signer.signatureDataUrl, 'data:image/png;base64,'));
 
+    if (fieldKind === 'line') {
+      page.drawRectangle({
+        x: panelX + 18,
+        y: rowY - 13,
+        width: panelWidth - 36,
+        height: 1.2,
+        color: rgb(0.05, 0.07, 0.09)
+      });
+    }
+
     page.drawImage(signatureImage, {
       x: panelX + 18,
-      y: rowY - 8,
+      y: fieldKind === 'line' ? rowY - 2 : rowY - 8,
       width: 142,
       height: 38
     });
@@ -127,7 +142,7 @@ export async function sealPdfWithSignatures(input: SealDocumentInput) {
       font: regularFont,
       color: rgb(0.16, 0.18, 0.22)
     });
-    rowY -= 66;
+    rowY -= fieldKind === 'line' ? 48 : 66;
   }
 
   page.drawText(`Original SHA-256: ${input.documentHash.slice(0, 32)}...`, {
@@ -191,6 +206,7 @@ async function sealExternalFileWithSignatures(input: SealDocumentInput) {
     ['Document', input.title],
     ['Original file', input.fileName || 'Uploaded file'],
     ['File type', input.fileType || mimeTypeFromDataUrl(input.fileDataUrl) || 'application/octet-stream'],
+    ['Signature target', describeSignatureField(input.signatureField)],
     ['Original SHA-256', input.documentHash],
     [
       'Proof package',
@@ -311,6 +327,7 @@ function drawAuditCertificate(
     fileName?: string;
     fileType?: string;
     documentHash: string;
+    signatureField?: SignatureFieldInput;
     signers: SealSignerInput[];
     eventHash: string;
     certificateAuthorityStatus?: string;
@@ -344,6 +361,7 @@ function drawAuditCertificate(
     ['Document', input.title],
     ...(input.fileName ? [['Original file', input.fileName]] : []),
     ...(input.fileType ? [['File type', input.fileType]] : []),
+    ['Signature target', describeSignatureField(input.signatureField)],
     ['Signers', input.signers.map((signer) => `${signer.signerName} <${signer.signerEmail}> at ${signer.signedAt}`).join('; ')],
     ['Original SHA-256', input.documentHash],
     ['Audit event hash', input.eventHash],
@@ -390,6 +408,24 @@ function isPdfDocument(fileDataUrl: string, fileType?: string, fileName?: string
 function mimeTypeFromDataUrl(dataUrl: string) {
   const match = /^data:([^;,]+)?(?:;[^,]*)?;base64,/i.exec(dataUrl.trim());
   return match?.[1]?.toLowerCase();
+}
+
+function normalizeSignatureField(field?: SignatureFieldInput): Required<SignatureFieldInput> {
+  const kind = field?.kind === 'line' ? 'line' : 'box';
+  return {
+    page: 'last',
+    xPercent: clamp(Number(field?.xPercent ?? 4), 0, 100),
+    yPercent: clamp(Number(field?.yPercent ?? 4), 0, 100),
+    widthPercent: clamp(Number(field?.widthPercent ?? 88), 25, 95),
+    heightPercent: clamp(Number(field?.heightPercent ?? (kind === 'line' ? 7 : 14)), 5, 28),
+    kind
+  };
+}
+
+function describeSignatureField(field?: SignatureFieldInput) {
+  const normalized = normalizeSignatureField(field);
+  const shape = normalized.kind === 'line' ? 'line' : 'box';
+  return `${shape} on the final page, ${normalized.xPercent}% across, ${normalized.yPercent}% up, ${normalized.widthPercent}% wide`;
 }
 
 function createAuditEventHash(input: {

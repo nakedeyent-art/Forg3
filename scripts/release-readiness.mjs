@@ -5,6 +5,7 @@ import fs from 'node:fs';
 
 const env = loadEnvFiles(['.env', '.env.local', '.env.production', '.env.production.local']);
 const baseUrl = (process.env.FORG3_MONITOR_URL || env.PUBLIC_SIGNING_BASE_URL || 'https://forg3.nak3deye.com').replace(/\/$/, '');
+const expectedCommit = readEnv('FORG3_EXPECTED_COMMIT') || readEnv('FORG3_EXPECTED_COMMIT_SHA');
 const checks = [];
 const requiredGoogleSubscriptions = [
   { productId: 'forg3_pro_monthly', basePlanId: 'monthly' },
@@ -36,6 +37,28 @@ await check('public health endpoint', async () => {
   const body = await response.json().catch(() => ({}));
   if (!response.ok || body.ok !== true || body.service !== 'forg3') {
     throw new Error(`/api/health returned ${response.status}`);
+  }
+  if (expectedCommit && body.commit !== expectedCommit) {
+    throw new Error(`/api/health commit ${body.commit || 'missing'} does not match ${expectedCommit}`);
+  }
+});
+
+await check('public version endpoint', async () => {
+  const response = await fetch(`${baseUrl}/api/version`);
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok || body.service !== 'forg3' || !body.version || !body.commit) {
+    throw new Error(`/api/version returned ${response.status}`);
+  }
+  if (expectedCommit && body.commit !== expectedCommit) {
+    throw new Error(`/api/version commit ${body.commit} does not match ${expectedCommit}`);
+  }
+});
+
+await check('signed-copy delivery route is deployed', async () => {
+  const response = await fetch(`${baseUrl}/api/documents/${crypto.randomUUID()}/signed/deliver`, { method: 'POST' });
+  const body = await response.json().catch(() => ({}));
+  if (response.status !== 401 || !body.error) {
+    throw new Error(`/api/documents/:id/signed/deliver returned ${response.status}; expected authenticated JSON route`);
   }
 });
 

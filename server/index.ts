@@ -61,6 +61,8 @@ const objectStore = new ObjectStore();
 const port = Number(process.env.PORT || 4127);
 const host = process.env.HOST || (process.env.NODE_ENV === 'production' ? '0.0.0.0' : '127.0.0.1');
 const distPath = path.resolve(process.cwd(), 'dist');
+const buildVersion = process.env.FORG3_BUILD_VERSION || process.env.npm_package_version || '1.0.0';
+const buildCommit = process.env.FORG3_COMMIT_SHA || process.env.SOURCE_VERSION || 'local';
 const payPerSignatureFeeCents = clamp(Number(process.env.PAY_PER_SIGNATURE_FEE_CENTS ?? 99), 0, 100000);
 const jsonBodyLimit = process.env.JSON_BODY_LIMIT || '40mb';
 const maxDocumentBytes = clamp(Number(process.env.MAX_DOCUMENT_BYTES ?? process.env.MAX_PDF_BYTES ?? 25 * 1024 * 1024), 1, 50 * 1024 * 1024);
@@ -239,7 +241,11 @@ app.use(['/api/auth/email/start', '/api/auth/mfa/start'], authCodeLimiter);
 app.use(['/api/auth/email/verify', '/api/auth/mfa/verify'], authVerifyLimiter);
 
 app.get('/api/health', (_request, response) => {
-  response.json({ ok: true, service: 'forg3', time: new Date().toISOString() });
+  response.json({ ok: true, service: 'forg3', version: buildVersion, commit: buildCommit, time: new Date().toISOString() });
+});
+
+app.get('/api/version', (_request, response) => {
+  response.json({ service: 'forg3', version: buildVersion, commit: buildCommit, environment: process.env.NODE_ENV || 'development' });
 });
 
 app.get('/api/auth/firebase-config', (_request, response) => {
@@ -544,7 +550,8 @@ app.post('/api/auth/email/verify', (request, response) => {
       return;
     }
 
-    if (!verifyTotpCode(totpEnrollment.secret, totpCode)) {
+    const storedTotpSecret = readStoredTotpSecret(totpEnrollment.secret);
+    if (!storedTotpSecret || !verifyTotpCode(storedTotpSecret, totpCode)) {
       response.status(401).json({ error: 'Authenticator app code is incorrect.', totpRequired: true });
       return;
     }
@@ -686,7 +693,7 @@ app.post('/api/auth/totp/enroll', requireOwner, (request, response) => {
   const secret = generateTotpSecret();
   store.upsertTotpEnrollment({
     ownerEmail: owner.email,
-    secret,
+    secret: protectTotpSecret(secret),
     status: 'pending',
     createdAt: new Date().toISOString()
   });
@@ -710,7 +717,8 @@ app.post('/api/auth/totp/activate', requireOwner, (request, response) => {
     return;
   }
 
-  if (!verifyTotpCode(enrollment.secret, code)) {
+  const storedTotpSecret = readStoredTotpSecret(enrollment.secret);
+  if (!storedTotpSecret || !verifyTotpCode(storedTotpSecret, code)) {
     response.status(400).json({ error: 'Authenticator code is incorrect. Check the app and try again.' });
     return;
   }
@@ -739,7 +747,8 @@ app.post('/api/auth/totp/disable', requireOwner, (request, response) => {
     return;
   }
 
-  if (enrollment.status === 'active' && !verifyTotpCode(enrollment.secret, code)) {
+  const storedTotpSecret = readStoredTotpSecret(enrollment.secret);
+  if (enrollment.status === 'active' && (!storedTotpSecret || !verifyTotpCode(storedTotpSecret, code))) {
     response.status(400).json({ error: 'Enter a valid authenticator code to disable it.' });
     return;
   }
@@ -1321,6 +1330,12 @@ app.post('/api/documents', requireOwner, async (request, response) => {
     return;
   }
 
+  const uploadedFileName = sanitizeUploadedFileName(String(body.fileName || ''));
+  if (!uploadedFileName) {
+    response.status(400).json({ error: 'Uploaded document must include a valid file name.' });
+    return;
+  }
+
   const fileDataUrl = String(body.fileDataUrl);
   const fileInfo = parseDataUrl(fileDataUrl);
 
@@ -1331,6 +1346,17 @@ app.post('/api/documents', requireOwner, async (request, response) => {
 
   if (dataUrlByteLength(fileDataUrl) > maxDocumentBytes) {
     response.status(413).json({ error: 'Document exceeds the configured upload size limit.' });
+    return;
+  }
+
+  const validatedFile = validateUploadedDocumentFile({
+    fileName: uploadedFileName,
+    fileType: body.fileType,
+    fileInfo
+  });
+
+  if (!validatedFile.ok) {
+    response.status(400).json({ error: validatedFile.error });
     return;
   }
 
@@ -1395,14 +1421,14 @@ app.post('/api/documents', requireOwner, async (request, response) => {
       token
     };
   });
-  const fileObjectKey = await objectStore.putDataUrl(owner.email, documentId, 'original', fileDataUrl);
+  const fileObjectKey = await objectStore.putDataUrl(owner.email, documentId, 'original', validatedFile.fileDataUrl);
   const document: SigningDocument = {
     id: documentId,
     title: String(body.title).trim(),
-    fileName: String(body.fileName),
-    fileType: normalizeDocumentFileType(body.fileType, fileInfo.mimeType),
+    fileName: uploadedFileName,
+    fileType: validatedFile.fileType,
     fileObjectKey,
-    documentHash: sha256DataUrl(fileDataUrl),
+    documentHash: sha256DataUrl(validatedFile.fileDataUrl),
     ownerName: owner.name || owner.email,
     ownerEmail: owner.email,
     signerName: links[0].signer.name,
@@ -1897,6 +1923,10 @@ if (fs.existsSync(path.join(distPath, 'index.html'))) {
   });
 }
 
+app.use('/api', (request, response) => {
+  response.status(404).json({ error: `Unknown API route: ${request.method} ${request.originalUrl}` });
+});
+
 app.use((error: Error, _request: Request, response: Response, _next: NextFunction) => {
   console.error(error);
   response.status(500).json({ error: 'Unexpected server error.' });
@@ -2067,6 +2097,7 @@ function toPublicSigningDocument(document: SigningDocument, signer: DocumentSign
     signerRole: signer.role,
     ownerName: document.ownerName,
     expiresAt: signer.expiresAt,
+    signatureField: document.signatureField,
     identityVerificationRequired: Boolean(document.identityVerificationRequired)
   };
 }
@@ -2214,16 +2245,25 @@ function normalizeSigners(
 
 function normalizeSignatureField(value: unknown): SignatureFieldPlacement {
   const field = value as Partial<SignatureFieldPlacement> | undefined;
+  const kind = field?.kind === 'line' ? 'line' : 'box';
   return {
     page: 'last',
     xPercent: clamp(Number(field?.xPercent ?? 4), 0, 100),
     yPercent: clamp(Number(field?.yPercent ?? 4), 0, 100),
-    widthPercent: clamp(Number(field?.widthPercent ?? 88), 35, 95)
+    widthPercent: clamp(Number(field?.widthPercent ?? 88), 25, 95),
+    heightPercent: clamp(Number(field?.heightPercent ?? (kind === 'line' ? 7 : 14)), 5, 28),
+    kind
   };
 }
 
 function isDefaultSignatureField(field: SignatureFieldPlacement) {
-  return field.xPercent === 4 && field.yPercent === 4 && field.widthPercent === 88;
+  return (
+    field.xPercent === 4 &&
+    field.yPercent === 4 &&
+    field.widthPercent === 88 &&
+    (field.heightPercent ?? 14) === 14 &&
+    (field.kind || 'box') === 'box'
+  );
 }
 
 async function createSignerDeliveries(input: {
@@ -3121,7 +3161,7 @@ function getCapabilitiesForPlan(planId?: PlanId | null, unlimitedAccess = false)
     automaticEmailDelivery: Boolean(planId),
     unlimitedAccess,
     multiSigner: proOrHigher,
-    fieldPlacement: proOrHigher,
+    fieldPlacement: Boolean(planId) || unlimitedAccess,
     templates: proOrHigher,
     reminders: proOrHigher,
     idVerification: highestTier,
@@ -3161,8 +3201,15 @@ function getFeatureStatus() {
       configured: Boolean(process.env.ID_VERIFICATION_PROVIDER)
     },
     receiptVerification: {
-      mode: (process.env.STORE_BILLING_VERIFICATION_MODE === 'mock' ? 'mock' : 'provider_required') as
+      mode: (
+        process.env.STORE_BILLING_VERIFICATION_MODE === 'mock'
+          ? 'mock'
+          : isStoreBillingConfigured()
+            ? 'provider'
+            : 'provider_required'
+      ) as
         | 'mock'
+        | 'provider'
         | 'provider_required',
       configured: isStoreBillingConfigured()
     },
@@ -3244,9 +3291,10 @@ function assertProductionReadiness() {
       );
     }
 
-    if (isGoogleBillingConfigured() && !process.env.GOOGLE_RTDN_VERIFICATION_TOKEN && !process.env.BILLING_WEBHOOK_TOKEN) {
-      problems.push('GOOGLE_RTDN_VERIFICATION_TOKEN — shared token for the Google Play RTDN push endpoint.');
-    }
+  }
+
+  if (isGoogleBillingConfigured() && !process.env.GOOGLE_RTDN_VERIFICATION_TOKEN && !process.env.BILLING_WEBHOOK_TOKEN) {
+    problems.push('GOOGLE_RTDN_VERIFICATION_TOKEN — shared token for the Google Play RTDN push endpoint.');
   }
 
   if (problems.length) {
@@ -3345,7 +3393,7 @@ function isGoogleRtdnRequestTrusted(request: Request) {
   const expected = process.env.GOOGLE_RTDN_VERIFICATION_TOKEN || process.env.BILLING_WEBHOOK_TOKEN;
 
   if (!expected) {
-    return true;
+    return process.env.NODE_ENV !== 'production';
   }
 
   const provided = String(request.query.token || request.headers['x-forg3-webhook-token'] || '');
@@ -3463,6 +3511,41 @@ function sha256Text(value: string) {
   return crypto.createHash('sha256').update(value, 'utf8').digest('hex');
 }
 
+const protectedTotpSecretPrefix = 'FORG3TOTP1:';
+
+function protectTotpSecret(secret: string) {
+  const iv = crypto.randomBytes(12);
+  const key = crypto.createHash('sha256').update(process.env.APP_AUTH_SECRET || process.env.DEV_AUTH_SECRET || 'forg3-local-auth-secret').digest();
+  const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
+  const ciphertext = Buffer.concat([cipher.update(secret, 'utf8'), cipher.final()]);
+  const tag = cipher.getAuthTag();
+  return `${protectedTotpSecretPrefix}${iv.toString('base64url')}:${tag.toString('base64url')}:${ciphertext.toString('base64url')}`;
+}
+
+function readStoredTotpSecret(storedSecret: string) {
+  if (!storedSecret.startsWith(protectedTotpSecretPrefix)) {
+    return storedSecret;
+  }
+
+  const [ivBase64, tagBase64, ciphertextBase64] = storedSecret.slice(protectedTotpSecretPrefix.length).split(':');
+
+  if (!ivBase64 || !tagBase64 || !ciphertextBase64) {
+    return '';
+  }
+
+  try {
+    const key = crypto.createHash('sha256').update(process.env.APP_AUTH_SECRET || process.env.DEV_AUTH_SECRET || 'forg3-local-auth-secret').digest();
+    const decipher = crypto.createDecipheriv('aes-256-gcm', key, Buffer.from(ivBase64, 'base64url'));
+    decipher.setAuthTag(Buffer.from(tagBase64, 'base64url'));
+    return Buffer.concat([
+      decipher.update(Buffer.from(ciphertextBase64, 'base64url')),
+      decipher.final()
+    ]).toString('utf8');
+  } catch {
+    return '';
+  }
+}
+
 function dataUrlByteLength(dataUrl: string) {
   const commaIndex = dataUrl.indexOf(',');
   const base64 = commaIndex >= 0 ? dataUrl.slice(commaIndex + 1) : dataUrl;
@@ -3470,20 +3553,194 @@ function dataUrlByteLength(dataUrl: string) {
 }
 
 function parseDataUrl(dataUrl: string) {
-  const match = /^data:([^;,]+)?(?:;[^,]*)?;base64,/i.exec(dataUrl.trim());
+  const match = /^data:([^;,]+)?(?:;[^,]*)?;base64,(.*)$/is.exec(dataUrl.trim());
 
   if (!match) {
     return null;
   }
 
+  const base64 = match[2].replace(/\s/g, '');
+
+  if (!base64 || base64.length % 4 === 1 || !/^[A-Za-z0-9+/]+={0,2}$/.test(base64)) {
+    return null;
+  }
+
   return {
-    mimeType: (match[1] || 'application/octet-stream').toLowerCase()
+    base64,
+    mimeType: normalizeDocumentFileType(match[1], 'application/octet-stream')
   };
 }
 
 function normalizeDocumentFileType(fileType: unknown, fallbackMimeType: string) {
   const normalized = String(fileType || fallbackMimeType || 'application/octet-stream').split(';')[0].trim().toLowerCase();
   return normalized || 'application/octet-stream';
+}
+
+const allowedDocumentFileTypes = [
+  {
+    label: 'PDF',
+    extensions: ['.pdf'],
+    mimeTypes: ['application/pdf'],
+    canonicalMimeType: 'application/pdf',
+    signature: 'pdf'
+  },
+  {
+    label: 'Word document',
+    extensions: ['.docx'],
+    mimeTypes: ['application/vnd.openxmlformats-officedocument.wordprocessingml.document'],
+    canonicalMimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    signature: 'zip'
+  },
+  {
+    label: 'Word document',
+    extensions: ['.doc'],
+    mimeTypes: ['application/msword'],
+    canonicalMimeType: 'application/msword',
+    signature: 'ole'
+  },
+  {
+    label: 'Excel spreadsheet',
+    extensions: ['.xlsx'],
+    mimeTypes: ['application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'],
+    canonicalMimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    signature: 'zip'
+  },
+  {
+    label: 'Excel spreadsheet',
+    extensions: ['.xls'],
+    mimeTypes: ['application/vnd.ms-excel'],
+    canonicalMimeType: 'application/vnd.ms-excel',
+    signature: 'ole'
+  },
+  {
+    label: 'PowerPoint presentation',
+    extensions: ['.pptx'],
+    mimeTypes: ['application/vnd.openxmlformats-officedocument.presentationml.presentation'],
+    canonicalMimeType: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+    signature: 'zip'
+  },
+  {
+    label: 'PowerPoint presentation',
+    extensions: ['.ppt'],
+    mimeTypes: ['application/vnd.ms-powerpoint'],
+    canonicalMimeType: 'application/vnd.ms-powerpoint',
+    signature: 'ole'
+  },
+  {
+    label: 'plain text',
+    extensions: ['.txt'],
+    mimeTypes: ['text/plain'],
+    canonicalMimeType: 'text/plain',
+    signature: 'text'
+  },
+  {
+    label: 'RTF document',
+    extensions: ['.rtf'],
+    mimeTypes: ['text/rtf', 'application/rtf'],
+    canonicalMimeType: 'text/rtf',
+    signature: 'rtf'
+  },
+  {
+    label: 'CSV file',
+    extensions: ['.csv'],
+    mimeTypes: ['text/csv', 'application/csv', 'application/vnd.ms-excel'],
+    canonicalMimeType: 'text/csv',
+    signature: 'text'
+  }
+] as const;
+
+function sanitizeUploadedFileName(input: string) {
+  const baseName = path.basename(input.replace(/\\/g, '/'));
+  const safeName = baseName
+    .replace(/[\x00-\x1f\x7f]/g, '')
+    .replace(/[<>:"|?*]/g, '_')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  if (!safeName || safeName === '.' || safeName === '..') {
+    return '';
+  }
+
+  return safeName.slice(0, 180);
+}
+
+function validateUploadedDocumentFile(input: {
+  fileName: string;
+  fileType: unknown;
+  fileInfo: { mimeType: string; base64: string };
+}): { ok: true; fileType: string; fileDataUrl: string } | { ok: false; error: string } {
+  const extension = path.extname(input.fileName).toLowerCase();
+  const requestedMime = normalizeDocumentFileType(input.fileType, input.fileInfo.mimeType);
+  const extensionIsKnown = allowedDocumentFileTypes.some((rule) => rule.extensions.includes(extension as never));
+
+  if (extension && !extensionIsKnown) {
+    return { ok: false, error: 'Unsupported file type. Upload PDF, Word, Excel, PowerPoint, TXT, RTF, or CSV files.' };
+  }
+
+  const rule =
+    allowedDocumentFileTypes.find((candidate) => candidate.extensions.includes(extension as never)) ||
+    allowedDocumentFileTypes.find((candidate) => candidate.mimeTypes.includes(requestedMime as never)) ||
+    allowedDocumentFileTypes.find((candidate) => candidate.mimeTypes.includes(input.fileInfo.mimeType as never));
+
+  if (!rule) {
+    return { ok: false, error: 'Unsupported file type. Upload PDF, Word, Excel, PowerPoint, TXT, RTF, or CSV files.' };
+  }
+
+  if (
+    !isLooseUploadMime(requestedMime) &&
+    !rule.mimeTypes.includes(requestedMime as never) &&
+    !(rule.signature === 'zip' && requestedMime === 'application/zip')
+  ) {
+    return { ok: false, error: `${rule.label} upload does not match the selected file type.` };
+  }
+
+  const bytes = Buffer.from(input.fileInfo.base64, 'base64');
+  if (!bytes.length) {
+    return { ok: false, error: 'Uploaded document is empty.' };
+  }
+
+  if (!fileBytesMatchSignature(bytes, rule.signature)) {
+    return { ok: false, error: `${rule.label} upload does not look like a valid ${rule.label} file.` };
+  }
+
+  return {
+    ok: true,
+    fileType: rule.canonicalMimeType,
+    fileDataUrl: `data:${rule.canonicalMimeType};base64,${input.fileInfo.base64}`
+  };
+}
+
+function isLooseUploadMime(mimeType: string) {
+  return !mimeType || mimeType === 'application/octet-stream' || mimeType === 'binary/octet-stream' || mimeType === 'application/zip';
+}
+
+function fileBytesMatchSignature(bytes: Buffer, signature: (typeof allowedDocumentFileTypes)[number]['signature']) {
+  if (signature === 'pdf') {
+    return bytes.subarray(0, 5).toString('ascii') === '%PDF-';
+  }
+
+  if (signature === 'zip') {
+    return bytes[0] === 0x50 && bytes[1] === 0x4b && [0x03, 0x05, 0x07].includes(bytes[2] || 0);
+  }
+
+  if (signature === 'ole') {
+    return bytes.subarray(0, 8).equals(Buffer.from([0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1]));
+  }
+
+  if (signature === 'rtf') {
+    return bytes.subarray(0, 6).toString('ascii').toLowerCase() === '{\\rtf1';
+  }
+
+  return isSafeTextLikeFile(bytes);
+}
+
+function isSafeTextLikeFile(bytes: Buffer) {
+  if (bytes.includes(0)) {
+    return false;
+  }
+
+  const head = bytes.subarray(0, 512).toString('utf8').trim().toLowerCase();
+  return !/^<(?:!doctype\s+html|html|script|svg)\b/.test(head);
 }
 
 function isExpired(document: SigningDocument) {

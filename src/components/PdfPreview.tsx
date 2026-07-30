@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { ChevronLeft, ChevronRight, Download, Loader2, ZoomIn, ZoomOut } from 'lucide-react';
 import * as pdfjs from 'pdfjs-dist';
 import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.mjs?url';
+import type { SignatureFieldPlacement } from '../lib/types';
 
 type PdfDocument = Awaited<ReturnType<typeof pdfjs.getDocument>['promise']>;
 
@@ -10,16 +11,18 @@ pdfjs.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
 interface PdfPreviewProps {
   fileDataUrl: string;
   fileName: string;
+  signatureField?: SignatureFieldPlacement;
   title: string;
   onDownload: () => void;
 }
 
-export function PdfPreview({ fileDataUrl, fileName, title, onDownload }: PdfPreviewProps) {
+export function PdfPreview({ fileDataUrl, fileName, signatureField, title, onDownload }: PdfPreviewProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const frameRef = useRef<HTMLDivElement | null>(null);
   const [pdf, setPdf] = useState<PdfDocument | null>(null);
   const [pageNumber, setPageNumber] = useState(1);
   const [pageCount, setPageCount] = useState(0);
+  const [pageSize, setPageSize] = useState<{ width: number; height: number } | null>(null);
   const [zoom, setZoom] = useState(1);
   const [loading, setLoading] = useState(true);
   const [rendering, setRendering] = useState(false);
@@ -32,6 +35,7 @@ export function PdfPreview({ fileDataUrl, fileName, title, onDownload }: PdfPrev
     setPdf(null);
     setPageNumber(1);
     setPageCount(0);
+    setPageSize(null);
 
     const loadingTask = pdfjs.getDocument({ data: dataUrlToBytes(fileDataUrl) });
 
@@ -95,6 +99,7 @@ export function PdfPreview({ fileDataUrl, fileName, title, onDownload }: PdfPrev
         canvas.height = Math.floor(viewport.height * pixelRatio);
         canvas.style.width = `${Math.floor(viewport.width)}px`;
         canvas.style.height = `${Math.floor(viewport.height)}px`;
+        setPageSize({ width: Math.floor(viewport.width), height: Math.floor(viewport.height) });
 
         context.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
         context.clearRect(0, 0, viewport.width, viewport.height);
@@ -195,10 +200,68 @@ export function PdfPreview({ fileDataUrl, fileName, title, onDownload }: PdfPrev
             </button>
           </div>
         )}
-        <canvas className="pdf-canvas" ref={canvasRef} />
+        <div
+          className="pdf-page-stage"
+          style={pageSize ? { width: `${pageSize.width}px`, height: `${pageSize.height}px` } : undefined}
+        >
+          <canvas className="pdf-canvas" ref={canvasRef} />
+          {signatureField && pageCount > 0 && pageNumber === pageCount && !error && (
+            <SignatureTargetOverlay field={signatureField} />
+          )}
+        </div>
       </div>
     </div>
   );
+}
+
+function SignatureTargetOverlay({ field }: { field: SignatureFieldPlacement }) {
+  const normalized = normalizeSignatureField(field);
+  const left = ((100 - normalized.widthPercent) * normalized.xPercent) / 100;
+  const bottom = ((100 - normalized.heightPercent) * normalized.yPercent) / 100;
+
+  return (
+    <div
+      className={`pdf-signature-target ${normalized.kind}`}
+      style={{
+        left: `${left}%`,
+        bottom: `${bottom}%`,
+        width: `${normalized.widthPercent}%`,
+        height: `${normalized.heightPercent}%`
+      }}
+      aria-hidden="true"
+    >
+      <span>Sign here</span>
+      <i />
+    </div>
+  );
+}
+
+function normalizeSignatureField(field: SignatureFieldPlacement): Required<SignatureFieldPlacement> {
+  const kind = field.kind === 'line' ? 'line' : 'box';
+  return {
+    page: 'last',
+    xPercent: clampPercent(field.xPercent ?? 4),
+    yPercent: clampPercent(field.yPercent ?? 4),
+    widthPercent: clampRange(field.widthPercent ?? 88, 25, 95),
+    heightPercent: clampRange(field.heightPercent ?? (kind === 'line' ? 7 : 14), 5, 28),
+    kind
+  };
+}
+
+function clampPercent(value: number) {
+  if (!Number.isFinite(value)) {
+    return 0;
+  }
+
+  return Math.min(Math.max(Math.round(value), 0), 100);
+}
+
+function clampRange(value: number, min: number, max: number) {
+  if (!Number.isFinite(value)) {
+    return min;
+  }
+
+  return Math.min(Math.max(Math.round(value), min), max);
 }
 
 function dataUrlToBytes(dataUrl: string) {

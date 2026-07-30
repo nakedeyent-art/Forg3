@@ -453,6 +453,8 @@ input:focus {
 }
 
 .feature-box-heading button,
+.field-mode-buttons button,
+.field-preset-row button,
 .template-chip-row button,
 .company-form button {
   min-height: 34px;
@@ -467,6 +469,26 @@ input:focus {
   background: #ffffff;
   font-size: 0.82rem;
   font-weight: 800;
+}
+
+.field-mode-buttons,
+.field-preset-row {
+  display: grid;
+  gap: 8px;
+}
+
+.field-mode-buttons {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.field-preset-row {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.field-mode-buttons button.active {
+  border-color: #176b87;
+  color: #ffffff;
+  background: #176b87;
 }
 
 .signer-mini-grid {
@@ -510,13 +532,34 @@ input:focus {
   min-height: 36px;
   display: grid;
   place-items: center;
-  transform: translate(-8px, 50%);
   border: 1px solid #176b87;
   border-radius: 8px;
   color: #176b87;
-  background: rgba(255, 255, 255, 0.92);
+  background: rgba(255, 255, 255, 0.94);
   font-size: 0.82rem;
   font-weight: 850;
+  box-shadow: 0 8px 20px rgba(23, 107, 135, 0.15);
+}
+
+.field-marker.line {
+  min-height: 28px;
+  align-content: end;
+  border-color: transparent;
+  background: rgba(255, 255, 255, 0.78);
+}
+
+.field-marker span {
+  position: relative;
+  z-index: 1;
+}
+
+.field-marker i {
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  bottom: 9px;
+  height: 2px;
+  background: #176b87;
 }
 
 .compact-toggle {
@@ -1117,13 +1160,60 @@ input:focus {
   -webkit-overflow-scrolling: touch;
 }
 
+.pdf-page-stage {
+  position: relative;
+  width: fit-content;
+  margin: 16px auto;
+}
+
 .pdf-canvas {
   display: block;
-  margin: 16px auto;
+  margin: 0;
   max-width: none;
   border-radius: 4px;
   background: #ffffff;
   box-shadow: 0 14px 34px rgba(16, 24, 32, 0.16);
+}
+
+.pdf-signature-target {
+  position: absolute;
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  min-width: 104px;
+  min-height: 30px;
+  border: 2px solid #d85f27;
+  border-radius: 8px;
+  color: #82330e;
+  background: rgba(255, 248, 236, 0.78);
+  box-shadow: 0 10px 26px rgba(216, 95, 39, 0.2);
+  pointer-events: none;
+}
+
+.pdf-signature-target.line {
+  align-content: end;
+  border-color: transparent;
+  background: rgba(255, 248, 236, 0.56);
+  box-shadow: none;
+}
+
+.pdf-signature-target span {
+  position: relative;
+  z-index: 1;
+  padding: 3px 7px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.88);
+  font-size: 0.78rem;
+  font-weight: 900;
+}
+
+.pdf-signature-target i {
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  bottom: 9px;
+  height: 2px;
+  background: #d85f27;
 }
 
 .pdf-state {
@@ -1189,6 +1279,29 @@ input:focus {
   color: #465660;
   font-size: 0.9rem;
   font-weight: 800;
+}
+
+.file-signature-target {
+  width: 100%;
+  display: grid;
+  gap: 5px;
+  padding: 11px;
+  border: 1px solid #ead7c9;
+  border-radius: 8px;
+  background: #fff8ef;
+}
+
+.file-signature-target span {
+  color: #8a3b16;
+  font-size: 0.76rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.file-signature-target strong {
+  color: #27313a;
+  font-size: 0.9rem;
+  line-height: 1.35;
 }
 
 .file-preview-meta {

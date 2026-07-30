@@ -13,12 +13,15 @@ export type EmailDeliveryKind = 'signing_link' | 'reminder' | 'signed_copy';
 export type DeliveryChannel = 'email';
 export type CompanyRole = 'owner' | 'admin' | 'sender' | 'viewer';
 export type MfaChallengeStatus = 'pending' | 'verified' | 'expired' | 'locked';
+export type SignatureFieldKind = 'box' | 'line';
 
 export interface SignatureFieldPlacement {
   page: 'last';
   xPercent: number;
   yPercent: number;
   widthPercent: number;
+  heightPercent?: number;
+  kind?: SignatureFieldKind;
 }
 
 export interface SignerIdentityVerification {
@@ -293,7 +296,7 @@ export interface FeatureStatus {
     configured: boolean;
   };
   receiptVerification: {
-    mode: 'mock' | 'provider_required';
+    mode: 'mock' | 'provider' | 'provider_required';
     configured: boolean;
   };
   objectStorage: {

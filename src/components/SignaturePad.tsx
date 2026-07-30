@@ -76,6 +76,18 @@ export const SignaturePad = forwardRef<SignaturePadHandle, SignaturePadProps>(fu
     [onChange]
   );
 
+  const commitCanvasSignature = useCallback(() => {
+    const canvas = canvasRef.current;
+
+    if (!canvas || !hasInkRef.current) {
+      return null;
+    }
+
+    const signatureDataUrl = canvas.toDataURL('image/png');
+    emitSignature(signatureDataUrl);
+    return signatureDataUrl;
+  }, [emitSignature]);
+
   const startDrawing = (event: PointerEvent<HTMLCanvasElement>) => {
     if (event.pointerType === 'mouse' && event.button !== 0) {
       return;
@@ -113,6 +125,7 @@ export const SignaturePad = forwardRef<SignaturePadHandle, SignaturePadProps>(fu
     context.lineTo(point.x, point.y);
     context.stroke();
     hasInkRef.current = true;
+    latestSignatureDataUrlRef.current = canvas.toDataURL('image/png');
   };
 
   const stopDrawing = (event?: PointerEvent<HTMLCanvasElement>) => {
@@ -128,9 +141,7 @@ export const SignaturePad = forwardRef<SignaturePadHandle, SignaturePadProps>(fu
       return;
     }
 
-    if (canvas && hasInkRef.current) {
-      emitSignature(canvas.toDataURL('image/png'));
-    }
+    commitCanvasSignature();
   };
 
   const clear = useCallback(() => {
@@ -153,10 +164,10 @@ export const SignaturePad = forwardRef<SignaturePadHandle, SignaturePadProps>(fu
   useImperativeHandle(
     ref,
     () => ({
-      getSignatureDataUrl: () => latestSignatureDataUrlRef.current,
+      getSignatureDataUrl: () => latestSignatureDataUrlRef.current || commitCanvasSignature(),
       clear
     }),
-    [clear]
+    [clear, commitCanvasSignature]
   );
 
   const changeMode = (nextMode: 'draw' | 'type') => {
@@ -209,6 +220,7 @@ export const SignaturePad = forwardRef<SignaturePadHandle, SignaturePadProps>(fu
             onPointerMove={draw}
             onPointerUp={stopDrawing}
             onPointerCancel={stopDrawing}
+            onPointerLeave={stopDrawing}
             onLostPointerCapture={stopDrawing}
           />
           <button className="icon-button clear-button" type="button" onClick={clear} title="Clear signature">

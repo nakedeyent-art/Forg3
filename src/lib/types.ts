@@ -10,12 +10,15 @@ export type EmailDeliveryStatus = 'logged' | 'provider_required' | 'sent' | 'fai
 export type EmailDeliveryKind = 'signing_link' | 'reminder' | 'signed_copy';
 export type DeliveryChannel = 'email';
 export type CompanyRole = 'owner' | 'admin' | 'sender' | 'viewer';
+export type SignatureFieldKind = 'box' | 'line';
 
 export interface SignatureFieldPlacement {
   page: 'last';
   xPercent: number;
   yPercent: number;
   widthPercent: number;
+  heightPercent?: number;
+  kind?: SignatureFieldKind;
 }
 
 export interface AuthSession {
@@ -145,6 +148,7 @@ export interface PublicSigningDocument {
   signerRole?: string;
   ownerName: string;
   expiresAt: string;
+  signatureField?: SignatureFieldPlacement;
   identityVerificationRequired: boolean;
 }
 
@@ -256,7 +260,7 @@ export interface FeatureStatus {
     configured: boolean;
   };
   receiptVerification: {
-    mode: 'mock' | 'provider_required';
+    mode: 'mock' | 'provider' | 'provider_required';
     configured: boolean;
   };
   objectStorage: {

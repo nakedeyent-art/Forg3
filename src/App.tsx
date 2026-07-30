@@ -35,6 +35,7 @@ import {
   createTemplate,
   cancelSubscription,
   addCompanyMember,
+  deliverSignedDocument,
   getAssignedSigningDocument,
   getCompany,
   getFeatureStatus,
@@ -116,7 +117,9 @@ const blankForm: CreateForm = {
     page: 'last',
     xPercent: 4,
     yPercent: 4,
-    widthPercent: 88
+    widthPercent: 88,
+    heightPercent: 14,
+    kind: 'box'
   },
   identityVerificationRequired: false
 };
@@ -218,8 +221,8 @@ const manualTierRows = [
     business: 'Included'
   },
   {
-    feature: 'Drag-and-drop field placement',
-    payPerSignature: 'Default placement',
+    feature: 'Signature target placement',
+    payPerSignature: 'Box or line target included',
     pro: 'Included',
     business: 'Included'
   },
@@ -639,6 +642,25 @@ function Dashboard() {
     }
   };
 
+  const handleDeliverSigned = async (document: DocumentSummary) => {
+    setBusy(`deliver-signed-${document.id}`);
+    setMessage('');
+
+    try {
+      const response = await deliverSignedDocument(document.id);
+      setDeliveries((current) => [...response.deliveries, ...current].slice(0, 25));
+      setMessage(
+        response.deliveries.some((delivery) => delivery.status === 'sent')
+          ? 'Signed package emailed back to the sender.'
+          : 'Signed package delivery was logged. Check delivery status below.'
+      );
+    } catch (error) {
+      setMessage(getErrorMessage(error));
+    } finally {
+      setBusy('');
+    }
+  };
+
   const getSigningLinkForDocument = (documentId: string) =>
     latestLinks.find((link) => link.documentId === documentId)?.url || null;
 
@@ -1003,7 +1025,7 @@ function Dashboard() {
             </span>
             <span>
               <ShieldCheck size={15} />
-              No IP capture
+              Audit certificate
             </span>
           </div>
 
@@ -1124,9 +1146,20 @@ function Dashboard() {
                         <button
                           type="button"
                           onClick={() => void handleDownloadSigned(document)}
+                          disabled={busy === `download-${document.id}`}
                           title="Download signed package"
                         >
-                          <Download size={16} />
+                          {busy === `download-${document.id}` ? <Loader2 className="spin" size={16} /> : <Download size={16} />}
+                        </button>
+                      )}
+                      {document.status === 'signed' && (
+                        <button
+                          type="button"
+                          onClick={() => void handleDeliverSigned(document)}
+                          disabled={busy === `deliver-signed-${document.id}`}
+                          title="Email signed package to sender"
+                        >
+                          {busy === `deliver-signed-${document.id}` ? <Loader2 className="spin" size={16} /> : <Send size={16} />}
                         </button>
                       )}
                       {document.status === 'sent' || document.status === 'expired' ? (
@@ -1368,11 +1401,56 @@ function FieldPlacementControl({
   field: SignatureFieldPlacement;
   onChange: (field: SignatureFieldPlacement) => void;
 }) {
+  const normalizedField = normalizeSignatureFieldForUi(field);
+  const markerStyle = getSignatureTargetStyle(normalizedField);
+  const presets: Array<{ label: string; field: SignatureFieldPlacement }> = [
+    {
+      label: 'Bottom line',
+      field: { page: 'last', xPercent: 50, yPercent: 4, widthPercent: 68, heightPercent: 7, kind: 'line' }
+    },
+    {
+      label: 'Bottom box',
+      field: { page: 'last', xPercent: 50, yPercent: 4, widthPercent: 68, heightPercent: 14, kind: 'box' }
+    },
+    {
+      label: 'Lower right',
+      field: { page: 'last', xPercent: 100, yPercent: 5, widthPercent: 42, heightPercent: 12, kind: 'box' }
+    },
+    {
+      label: 'Full width',
+      field: { page: 'last', xPercent: 4, yPercent: 4, widthPercent: 88, heightPercent: 14, kind: 'box' }
+    }
+  ];
+  const updateKind = (kind: 'box' | 'line') =>
+    onChange({
+      ...normalizedField,
+      kind,
+      heightPercent: kind === 'line' ? Math.min(normalizedField.heightPercent, 9) : Math.max(normalizedField.heightPercent, 12)
+    });
+
   return (
     <div className="feature-box">
       <div className="feature-box-heading">
-        <span>Signature field placement</span>
-        <small>{disabled ? 'Pro or Business' : `${field.xPercent}% / ${field.yPercent}%`}</small>
+        <span>Signature target</span>
+        <small>{disabled ? 'Paid sender access required' : describeSignatureTarget(normalizedField)}</small>
+      </div>
+      <div className="field-mode-buttons" aria-label="Signature target shape">
+        <button
+          type="button"
+          className={normalizedField.kind === 'box' ? 'active' : ''}
+          disabled={disabled}
+          onClick={() => updateKind('box')}
+        >
+          Box
+        </button>
+        <button
+          type="button"
+          className={normalizedField.kind === 'line' ? 'active' : ''}
+          disabled={disabled}
+          onClick={() => updateKind('line')}
+        >
+          Line
+        </button>
       </div>
       <div
         className={`field-designer ${disabled ? 'disabled' : ''}`}
@@ -1382,40 +1460,56 @@ function FieldPlacementControl({
           }
 
           const rect = event.currentTarget.getBoundingClientRect();
-          const xPercent = Math.round(((event.clientX - rect.left) / rect.width) * 100);
-          const yPercent = Math.round((1 - (event.clientY - rect.top) / rect.height) * 100);
+          const clickXPercent = ((event.clientX - rect.left) / rect.width) * 100;
+          const clickYPercent = (1 - (event.clientY - rect.top) / rect.height) * 100;
           onChange({
-            ...field,
-            xPercent: clampPercent(xPercent),
-            yPercent: clampPercent(yPercent)
+            ...normalizedField,
+            xPercent: placementPercentFromCenter(clickXPercent, normalizedField.widthPercent),
+            yPercent: placementPercentFromCenter(clickYPercent, normalizedField.heightPercent)
           });
         }}
         role="slider"
         aria-label="Signature field placement"
-        aria-valuetext={`${field.xPercent} percent across and ${field.yPercent} percent up the page`}
+        aria-valuetext={describeSignatureTarget(normalizedField)}
       >
         <div
-          className="field-marker"
-          style={{
-            left: `${field.xPercent}%`,
-            bottom: `${field.yPercent}%`,
-            width: `${field.widthPercent}%`
-          }}
+          className={`field-marker ${normalizedField.kind}`}
+          style={markerStyle}
         >
-          Signature
+          <span>Sign here</span>
+          <i />
         </div>
       </div>
+      <div className="field-preset-row">
+        {presets.map((preset) => (
+          <button type="button" key={preset.label} disabled={disabled} onClick={() => onChange(preset.field)}>
+            {preset.label}
+          </button>
+        ))}
+      </div>
       <label>
-        <span>Field width</span>
+        <span>Target width</span>
         <input
           type="range"
-          min={35}
+          min={25}
           max={95}
-          value={field.widthPercent}
+          value={normalizedField.widthPercent}
           disabled={disabled}
-          onChange={(event) => onChange({ ...field, widthPercent: Number(event.target.value) })}
+          onChange={(event) => onChange({ ...normalizedField, widthPercent: Number(event.target.value) })}
         />
       </label>
+      <label>
+        <span>Target height</span>
+        <input
+          type="range"
+          min={5}
+          max={28}
+          value={normalizedField.heightPercent}
+          disabled={disabled}
+          onChange={(event) => onChange({ ...normalizedField, heightPercent: Number(event.target.value) })}
+        />
+      </label>
+      <small>Recipients see this target highlighted on the final PDF page before signing.</small>
     </div>
   );
 }
@@ -2070,6 +2164,7 @@ function SignerScreen({ access }: { access: SigningAccess }) {
               <PdfPreview
                 fileDataUrl={fileDataUrl}
                 fileName={document.fileName}
+                signatureField={document.signatureField}
                 title={document.title}
                 onDownload={() => downloadDataUrl(fileDataUrl, document.fileName)}
               />
@@ -2077,6 +2172,7 @@ function SignerScreen({ access }: { access: SigningAccess }) {
               <DocumentFilePreview
                 document={document}
                 fileDataUrl={fileDataUrl}
+                signatureField={document.signatureField}
                 onDownload={() => downloadDataUrl(fileDataUrl, document.fileName)}
               />
             )}
@@ -2108,9 +2204,19 @@ function SignerScreen({ access }: { access: SigningAccess }) {
                   changed since it was sent.
                 </li>
                 <li>
-                  After everyone signs, Forg3 seals a signed package with an audit certificate page that you can
-                  download immediately.
+                  Sign in the highlighted {normalizeSignatureFieldForUi(document.signatureField).kind} target selected
+                  by the sender.
                 </li>
+                <li>
+                  After everyone signs, Forg3 seals a signed package with an audit certificate page and sends a copy
+                  back to the sender.
+                </li>
+                {!isPdfDocument(document.fileType, document.fileName, fileDataUrl) && (
+                  <li>
+                    This file stays preserved as the original upload. Forg3 signs a PDF certificate for the exact file
+                    fingerprint shown above.
+                  </li>
+                )}
               </ul>
             </div>
 
@@ -2187,13 +2293,16 @@ function StatusChip({ status }: { status: DocumentSummary['status'] }) {
 function DocumentFilePreview({
   document,
   fileDataUrl,
+  signatureField,
   onDownload
 }: {
   document: PublicSigningDocument;
   fileDataUrl: string;
+  signatureField?: SignatureFieldPlacement;
   onDownload: () => void;
 }) {
   const fileType = document.fileType || getMimeTypeFromDataUrl(fileDataUrl) || 'application/octet-stream';
+  const target = normalizeSignatureFieldForUi(signatureField);
 
   return (
     <div className="file-preview" aria-label={`File review for ${document.title}`}>
@@ -2205,6 +2314,11 @@ function DocumentFilePreview({
           <span className="eyebrow">Original file</span>
           <h2>{document.fileName}</h2>
           <p>{formatFileType(fileType)}</p>
+          <small>Forg3 will create a signed PDF certificate for this exact original file.</small>
+        </div>
+        <div className="file-signature-target">
+          <span>Signature target</span>
+          <strong>{describeSignatureTarget(target)}</strong>
         </div>
         <dl className="file-preview-meta">
           <div>
@@ -2485,6 +2599,50 @@ function clampPercent(value: number) {
   }
 
   return Math.min(Math.max(Math.round(value), 0), 100);
+}
+
+function clampRange(value: number, min: number, max: number) {
+  if (!Number.isFinite(value)) {
+    return min;
+  }
+
+  return Math.min(Math.max(Math.round(value), min), max);
+}
+
+function normalizeSignatureFieldForUi(field?: SignatureFieldPlacement): Required<SignatureFieldPlacement> {
+  const kind = field?.kind === 'line' ? 'line' : 'box';
+  return {
+    page: 'last',
+    xPercent: clampPercent(field?.xPercent ?? 4),
+    yPercent: clampPercent(field?.yPercent ?? 4),
+    widthPercent: clampRange(field?.widthPercent ?? 88, 25, 95),
+    heightPercent: clampRange(field?.heightPercent ?? (kind === 'line' ? 7 : 14), 5, 28),
+    kind
+  };
+}
+
+function getSignatureTargetStyle(field: Required<SignatureFieldPlacement>) {
+  const left = ((100 - field.widthPercent) * field.xPercent) / 100;
+  const bottom = ((100 - field.heightPercent) * field.yPercent) / 100;
+
+  return {
+    left: `${left}%`,
+    bottom: `${bottom}%`,
+    width: `${field.widthPercent}%`,
+    height: `${field.heightPercent}%`
+  };
+}
+
+function placementPercentFromCenter(centerPercent: number, sizePercent: number) {
+  const travel = Math.max(1, 100 - sizePercent);
+  const startPercent = Math.min(Math.max(centerPercent - sizePercent / 2, 0), travel);
+  return clampPercent((startPercent / travel) * 100);
+}
+
+function describeSignatureTarget(field: SignatureFieldPlacement) {
+  const normalized = normalizeSignatureFieldForUi(field);
+  const shape = normalized.kind === 'line' ? 'line' : 'box';
+  return `${shape}, final page, ${normalized.widthPercent}% wide`;
 }
 
 function getBillingProviderForRuntime(): BillingProvider {

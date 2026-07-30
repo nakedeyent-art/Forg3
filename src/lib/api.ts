@@ -142,6 +142,12 @@ export async function getSignedDocument(id: string) {
   return request<Omit<SignedDocumentResponse, 'document'>>(`/api/documents/${id}/signed`);
 }
 
+export async function deliverSignedDocument(id: string) {
+  return request<{ deliveries: EmailDelivery[] }>(`/api/documents/${id}/signed/deliver`, {
+    method: 'POST'
+  });
+}
+
 export async function listEmailDeliveries() {
   return request<{ deliveries: EmailDelivery[] }>('/api/email-deliveries');
 }
