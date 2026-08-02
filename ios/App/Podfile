@@ -31,6 +31,7 @@ strip_forg3_attrs() {
     com.apple.ResourceFork \
     'com.apple.fileprovider.fpfs#P' \
     'com.apple.fileprovider.dir#N' \
+    com.apple.provenance \
     com.apple.quarantine
   do
     /usr/bin/find "$target" -depth -exec /usr/bin/xattr -d "$attr" {} + 2>/dev/null || true
