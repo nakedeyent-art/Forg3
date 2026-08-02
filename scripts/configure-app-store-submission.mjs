@@ -519,7 +519,7 @@ async function submitReviewPackage({ app, version, reviewDetail, ageRating, buil
     reviewSubmission.id,
     'appStoreVersion',
     'appStoreVersions',
-    new Set()
+    new Set([version.id])
   );
   try {
     await createReviewSubmissionItem(reviewSubmission.id, 'appStoreVersion', 'appStoreVersions', version.id);
@@ -533,7 +533,7 @@ async function submitReviewPackage({ app, version, reviewDetail, ageRating, buil
       reviewSubmission.id,
       'appStoreVersion',
       'appStoreVersions',
-      new Set()
+      new Set([version.id])
     );
     await createReviewSubmissionItem(reviewSubmission.id, 'appStoreVersion', 'appStoreVersions', version.id);
   }
@@ -892,8 +892,16 @@ async function pruneReviewSubmissionItems(reviewSubmissionId, relationshipName, 
     const related = item.relationships?.[relationshipName]?.data;
     if (related?.type !== relatedType || keepIds.has(related.id)) continue;
 
-    await api(`/v1/reviewSubmissionItems/${item.id}`, { method: 'DELETE' });
-    console.log(`Removed stale review item: ${relatedType}/${related.id}`);
+    try {
+      await api(`/v1/reviewSubmissionItems/${item.id}`, { method: 'DELETE' });
+      console.log(`Removed stale review item: ${relatedType}/${related.id}`);
+    } catch (error) {
+      if (isAlreadySubmittedReviewItemError(error)) {
+        console.log(`Kept already-submitted review item: ${relatedType}/${related.id}`);
+        continue;
+      }
+      throw error;
+    }
   }
 }
 
@@ -954,6 +962,11 @@ function findConflictingReviewSubmissionId(error) {
 
   const match = JSON.stringify(error.body).match(/reviewSubmission with id ([0-9a-f-]+)/i);
   return match?.[1] || null;
+}
+
+function isAlreadySubmittedReviewItemError(error) {
+  return error?.status === 409 &&
+    error.body?.errors?.some((entry) => /already submitted/i.test(entry.detail || ''));
 }
 
 async function firstOrNull(pathname) {
