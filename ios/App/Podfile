@@ -14,7 +14,7 @@ def capacitor_pods
 
 end
 
-target 'App' do
+target 'Forg3' do
   capacitor_pods
   # Add your Pods here
 end
@@ -57,7 +57,7 @@ fi
 SCRIPT
   end
 
-  frameworks_script = File.join(__dir__, 'Pods', 'Target Support Files', 'Pods-App', 'Pods-App-frameworks.sh')
+  frameworks_script = File.join(__dir__, 'Pods', 'Target Support Files', 'Pods-Forg3', 'Pods-Forg3-frameworks.sh')
   if File.exist?(frameworks_script)
     contents = File.read(frameworks_script)
     contents = contents.gsub(
