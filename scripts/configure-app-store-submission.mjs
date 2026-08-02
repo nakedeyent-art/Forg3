@@ -510,12 +510,9 @@ async function submitReviewPackage({ app, version, reviewDetail, ageRating, buil
     return;
   }
 
-  const activeReviewSubmission = reviewSubmissions.find((candidate) => {
-    const attributes = candidate.attributes || {};
-    return attributes.state === 'READY_FOR_REVIEW' && !attributes.submitted && !attributes.canceled;
-  });
+  const activeReviewSubmission = selectReusableReviewSubmission(reviewSubmissions);
 
-  const reviewSubmission = activeReviewSubmission || await createReviewSubmission(app.id);
+  let reviewSubmission = activeReviewSubmission || await createReviewSubmission(app.id);
   console.log(`Review submission: ${reviewSubmission.id}${activeReviewSubmission ? ' (existing draft)' : ' (created)'}`);
 
   await pruneReviewSubmissionItems(
@@ -524,7 +521,22 @@ async function submitReviewPackage({ app, version, reviewDetail, ageRating, buil
     'appStoreVersions',
     new Set()
   );
-  await createReviewSubmissionItem(reviewSubmission.id, 'appStoreVersion', 'appStoreVersions', version.id);
+  try {
+    await createReviewSubmissionItem(reviewSubmission.id, 'appStoreVersion', 'appStoreVersions', version.id);
+  } catch (error) {
+    const existingReviewSubmissionId = findConflictingReviewSubmissionId(error);
+    if (!existingReviewSubmissionId || existingReviewSubmissionId === reviewSubmission.id) throw error;
+
+    reviewSubmission = await getReviewSubmission(existingReviewSubmissionId);
+    console.log(`Switching to existing review submission ${reviewSubmission.id} for app version ${version.id}.`);
+    await pruneReviewSubmissionItems(
+      reviewSubmission.id,
+      'appStoreVersion',
+      'appStoreVersions',
+      new Set()
+    );
+    await createReviewSubmissionItem(reviewSubmission.id, 'appStoreVersion', 'appStoreVersions', version.id);
+  }
   console.log(`Included app version ${version.attributes.versionString}.`);
 
   const group = await getSubscriptionGroup(app.id);
@@ -717,6 +729,29 @@ async function listManualAppPrices(appId) {
 async function listReviewSubmissions(appId) {
   const response = await api(`/v1/reviewSubmissions?filter[app]=${appId}&limit=20`);
   return response.data || [];
+}
+
+function selectReusableReviewSubmission(reviewSubmissions) {
+  const statePriority = new Map([
+    ['UNRESOLVED_ISSUES', 0],
+    ['READY_FOR_REVIEW', 1]
+  ]);
+
+  return reviewSubmissions
+    .filter((candidate) => {
+      const attributes = candidate.attributes || {};
+      return statePriority.has(attributes.state) && !attributes.submitted && !attributes.canceled;
+    })
+    .sort((a, b) => {
+      const aPriority = statePriority.get(a.attributes?.state) ?? 99;
+      const bPriority = statePriority.get(b.attributes?.state) ?? 99;
+      return aPriority - bPriority;
+    })[0] || null;
+}
+
+async function getReviewSubmission(reviewSubmissionId) {
+  const response = await api(`/v1/reviewSubmissions/${reviewSubmissionId}`);
+  return response.data;
 }
 
 async function createReviewSubmission(appId) {
@@ -912,6 +947,13 @@ async function reviewSubmissionHasItem(reviewSubmissionId, relationshipName, rel
     const related = item.relationships?.[relationshipName]?.data;
     return related?.type === relatedType && related?.id === relatedId;
   });
+}
+
+function findConflictingReviewSubmissionId(error) {
+  if (error?.status !== 409 || !error.body) return null;
+
+  const match = JSON.stringify(error.body).match(/reviewSubmission with id ([0-9a-f-]+)/i);
+  return match?.[1] || null;
 }
 
 async function firstOrNull(pathname) {
