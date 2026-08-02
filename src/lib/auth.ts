@@ -115,6 +115,14 @@ export function firebaseConfigured() {
   return Boolean(cachedFirebaseConfig || getBundledFirebaseConfig());
 }
 
+export function canUseProviderAuth(configured = firebaseConfigured()) {
+  if (Capacitor.isNativePlatform()) {
+    return configured && import.meta.env.VITE_ENABLE_NATIVE_PROVIDER_AUTH === 'true';
+  }
+
+  return configured || import.meta.env.DEV;
+}
+
 export async function loadFirebaseConfiguration() {
   return Boolean(await getFirebaseClientConfig());
 }

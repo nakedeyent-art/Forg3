@@ -65,8 +65,7 @@ import {
 import {
   clearStoredSession,
   firebaseConfigured,
-  getStoredSession,
-  signIn
+  getStoredSession
 } from './lib/auth';
 import {
   manageNativeSubscriptions,
@@ -447,20 +446,6 @@ function Dashboard() {
 
     setLatestLinks((current) => current.filter((link) => liveDocumentIds.has(link.documentId)));
   }, [documents, latestLinks.length]);
-
-  const handleSignIn = async (provider: 'google' | 'apple') => {
-    setBusy(`auth-${provider}`);
-    setMessage('');
-
-    try {
-      const nextSession = await signIn(provider);
-      setSession(nextSession);
-    } catch (error) {
-      setMessage(getErrorMessage(error));
-    } finally {
-      setBusy('');
-    }
-  };
 
   const handleFile = async (event: ChangeEvent<HTMLInputElement>) => {
     const nextFile = event.target.files?.[0];
@@ -1566,7 +1551,7 @@ function LoginScreen({
           <div className="login-card-heading">
             <span className="eyebrow">Account access</span>
             <h2 id="login-title">Sign in or create your account</h2>
-            <p>Use Apple, Google, or a secure one-time code sent to your email.</p>
+            <p>Use a secure one-time code sent to your email.</p>
           </div>
 
           <AuthControls onSignedIn={onSignedIn} variant="page" />
@@ -1863,20 +1848,6 @@ function RecipientInboxScreen() {
   useEffect(() => {
     setDeviceVerified(false);
   }, [session?.uid, session?.email]);
-
-  const handleSignIn = async (provider: 'google' | 'apple') => {
-    setBusy(`auth-${provider}`);
-    setMessage('');
-
-    try {
-      const nextSession = await signIn(provider);
-      setSession(nextSession);
-    } catch (error) {
-      setMessage(getErrorMessage(error));
-    } finally {
-      setBusy('');
-    }
-  };
 
   const signOut = () => {
     clearStoredSession();
@@ -2267,7 +2238,7 @@ function InstructionManual() {
             <h3>Send a document for signature</h3>
           </div>
           <ol>
-            <li>Sign in with email code, Google, or Apple.</li>
+            <li>Sign in with a secure email code.</li>
             <li>Activate a sender subscription tier.</li>
             <li>Choose a document, add a title, signers, field placement, identity settings, and expiration window.</li>
             <li>Create the packet.</li>
@@ -2625,20 +2596,6 @@ function SignerScreen({ access }: { access: SigningAccess }) {
     setSignatureDataUrl(null);
     setSignedResult(null);
     setMessage('');
-  };
-
-  const handleSignIn = async (provider: 'google' | 'apple') => {
-    setBusy(`auth-${provider}`);
-    setMessage('');
-
-    try {
-      const nextSession = await signIn(provider);
-      setSession(nextSession);
-    } catch (error) {
-      setMessage(getErrorMessage(error));
-    } finally {
-      setBusy('');
-    }
   };
 
   const handleSign = async (event: FormEvent) => {

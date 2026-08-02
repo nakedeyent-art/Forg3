@@ -14,7 +14,7 @@ Recipient/signee onboarding:
 Sender onboarding:
 
 1. Install Forg3 from the App Store or Google Play.
-2. Sign in with an email code, Apple, or Google.
+2. Sign in with an email code.
 3. Verify a new device with the Forg3 device 2FA flow.
 4. Choose a paid sender plan.
 5. Create and email signing packets after the store purchase is verified server-side.
@@ -24,9 +24,9 @@ Email-code login is the baseline production path. Apple and Google login require
 - Public Firebase client config either bundled into the app with `VITE_FIREBASE_API_KEY`, `VITE_FIREBASE_AUTH_DOMAIN`, `VITE_FIREBASE_PROJECT_ID`, `VITE_FIREBASE_APP_ID`, or served at runtime by the API with `FIREBASE_WEB_API_KEY`, `FIREBASE_AUTH_DOMAIN`, `FIREBASE_PROJECT_ID`, `FIREBASE_WEB_APP_ID`.
 - Firebase Admin credentials on the API server so Forg3 can verify provider ID tokens before granting account access.
 
-The web build uses Firebase popup auth only in normal browsers. Native/mobile runtimes use Firebase redirect auth and the login screen automatically finishes a pending redirect when the app returns.
+The web build uses Firebase popup auth only in normal browsers. Native/mobile provider auth is opt-in through `VITE_ENABLE_NATIVE_PROVIDER_AUTH=true`; leave it unset until the native Google/Apple provider bridges are configured and tested on real iOS and Android devices.
 
-Do not force Apple or Google buttons into native builds unless the provider path is configured and tested on real iOS and Android devices. If the runtime API config is used, the native bundle does not need a rebuild just to reveal the provider buttons.
+Do not force Apple or Google buttons into native builds unless the provider path is configured and tested on real iOS and Android devices.
 
 ## Sender and signer entitlement policy
 

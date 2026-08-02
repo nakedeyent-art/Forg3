@@ -1,6 +1,6 @@
 # Forg3 Store Submission Packet
 
-Last updated: 2026-07-30
+Last updated: 2026-08-02
 
 ## App Identity
 
@@ -19,14 +19,14 @@ Last updated: 2026-07-30
 ## App Store Connect Status
 
 - App Store Connect app exists: `Forg3`, app id `6790994628`, bundle `com.forg3.sign`, SKU `com.forg3.sign`.
-- iOS version `1.0` exists and is `WAITING_FOR_REVIEW` as of `2026-07-30T09:42:09Z`.
-- Build `5` is uploaded, `VALID`, and attached to iOS version `1.0`.
+- iOS version `1.0` was rejected on `2026-07-31` for Sign in with Apple/Google errors and subscription purchase errors on iPad Air 11-inch (M3), iPadOS 26.5.2.
+- Build `5` is uploaded and was the rejected binary. The corrective package is being prepared as iOS build `6`.
 - Paid Apps Agreement, bank account, W-9, and Digital Services Act compliance are active.
 - App metadata is configured through API/UI: name, subtitle, privacy URL, description, keywords, support URL, screenshots, content-rights declaration, primary category `BUSINESS`, free app download pricing, and copyright `2026 NAK3D EYE ENTERPRISES`.
 - App Store screenshots are uploaded and asset-processed: 8 for `APP_IPHONE_67`, 8 for `APP_IPAD_PRO_3GEN_129`.
 - App Store age-rating answers are configured through the App Store Connect API: user-generated content is disclosed, and objectionable-content/web-access/gambling/chat/advertising answers are set to none/false.
-- App Review detail/contact, reviewer notes, and demo account are configured. Build `5` declares `usesNonExemptEncryption=false`; the iOS shell includes `ITSAppUsesNonExemptEncryption=false`. Apple rejected the prior package because the review/demo account could land in an active creator entitlement state and hide the Pro/Business StoreKit purchase cards after sign-in; native billing UI now keeps those StoreKit plan cards visible for creator/review accounts. API status on `2026-07-30T09:42:09Z`: iOS version `1.0` is `WAITING_FOR_REVIEW`, build `5` is attached/valid, review detail is present, age rating is configured, app privacy is published, and review submission `14bd210c-daa7-4e0f-9585-ca4e3090a2d3` is waiting for review.
-- Apple subscription group `Forg3 Plans` exists with group localization. `Forg3 Pro` and `Forg3 Business` are `WAITING_FOR_REVIEW` with Apple-equalized pricing across 175 territories and subscription review screenshots. Apple requires the first subscriptions to be submitted with the app version, and both launch subscriptions are included in review submission `14bd210c-daa7-4e0f-9585-ca4e3090a2d3`.
+- App Review detail/contact, reviewer notes, and demo account are configured. Build `5` declares `usesNonExemptEncryption=false`; the iOS shell includes `ITSAppUsesNonExemptEncryption=false`. Apple rejected build `5` because Sign in with Apple/Google errored and the subscription purchase attempt errored in sandbox review. The corrective build hides native Google/Apple provider buttons unless native provider auth is explicitly enabled and uses the supplied email-code review account as the supported review sign-in path. Apple StoreKit transaction verification now uses the StoreKit transaction environment to try the correct App Store Server API endpoint before failing over.
+- Apple subscription group `Forg3 Plans` exists with group localization. `Forg3 Pro` and `Forg3 Business` have Apple-equalized pricing across 175 territories and subscription review screenshots. Apple returned both subscriptions because the associated app was rejected; they must be resubmitted with the corrected app build.
 - `Forg3 Pay Per Signature` is also configured in App Store Connect, but it remains hidden from the first native mobile launch until the per-signature usage model is packaged as store-managed credits or another approved model.
 
 ## Store Description
@@ -43,7 +43,7 @@ e-signature, electronic signature, PDF signing, document signing, secure documen
 
 ## Review Notes
 
-Use the review account supplied in App Review / Google Play sign-in details. Review builds should set `FORG3_REVIEW_ACCESS_EMAIL` and `FORG3_REVIEW_ACCESS_CODE`, and include that same email in `FORG3_CREATOR_EMAILS`, so reviewers can sign in with a reusable six-digit code and test paid sender flows without inbox access or a store purchase. The app requires device verification on a new device before documents or recipient rooms open. A subscription is required before a non-creator account can send signature requests. The account deletion control is available in Account settings and permanently removes documents, files, devices, sessions, and account history.
+Use the review account supplied in App Review / Google Play sign-in details. Review builds should set `FORG3_REVIEW_ACCESS_EMAIL` and `FORG3_REVIEW_ACCESS_CODE`, and include that same email in `FORG3_CREATOR_EMAILS`, so reviewers can sign in with a reusable six-digit code and test paid sender flows without inbox access or a store purchase. For iOS review, use the email-code path only; native Google/Apple provider buttons are intentionally hidden unless `VITE_ENABLE_NATIVE_PROVIDER_AUTH=true` is set for a build after real-device provider testing. The app requires device verification on a new device before documents or recipient rooms open. A subscription is required before a non-creator account can send signature requests. The account deletion control is available in Account settings and permanently removes documents, files, devices, sessions, and account history.
 
 Forg3 currently creates electronic signature stamps and audit certificate pages. It does not claim to provide notarization or certificate-authority-backed PAdES signatures unless a production certificate provider is configured.
 

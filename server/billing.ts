@@ -171,9 +171,12 @@ async function verifyAppleReceipt(input: StoreBillingVerificationInput): Promise
 
   const signedTransactionInfo =
     stringFrom(input.requestBody.signedTransactionInfo) || (looksLikeJws(input.providerReceipt) ? input.providerReceipt : '');
+  const clientTransactionPayload = signedTransactionInfo
+    ? decodeJwsPayload<AppleTransactionPayload>(signedTransactionInfo)
+    : null;
   const transactionId =
     stringFrom(input.requestBody.transactionId) ||
-    (signedTransactionInfo ? stringFrom(decodeJwsPayload<AppleTransactionPayload>(signedTransactionInfo).transactionId) : '') ||
+    stringFrom(clientTransactionPayload?.transactionId) ||
     input.providerReceipt;
 
   if (!transactionId) {
@@ -186,7 +189,7 @@ async function verifyAppleReceipt(input: StoreBillingVerificationInput): Promise
 
   // Never trust a client-supplied StoreKit JWS as the entitlement source. Use it
   // only to recover the transaction id, then verify through Apple's server API.
-  const transactionPayload = await fetchAppleTransaction(transactionId);
+  const transactionPayload = await fetchAppleTransaction(transactionId, clientTransactionPayload?.environment);
   const expectedBundleId = getAppleBundleId();
 
   if (transactionPayload.bundleId !== expectedBundleId) {
@@ -225,25 +228,37 @@ async function verifyAppleReceipt(input: StoreBillingVerificationInput): Promise
   };
 }
 
-async function fetchAppleTransaction(transactionId: string): Promise<AppleTransactionPayload> {
-  const response = await fetch(`${getAppleApiBaseUrl()}/inApps/v1/transactions/${encodeURIComponent(transactionId)}`, {
-    headers: {
-      Authorization: `Bearer ${createAppleServerApiJwt()}`
+async function fetchAppleTransaction(transactionId: string, preferredEnvironment?: string): Promise<AppleTransactionPayload> {
+  const errors: string[] = [];
+
+  for (const baseUrl of getAppleApiBaseUrls(preferredEnvironment)) {
+    const response = await fetch(`${baseUrl}/inApps/v1/transactions/${encodeURIComponent(transactionId)}`, {
+      headers: {
+        Authorization: `Bearer ${createAppleServerApiJwt()}`
+      }
+    });
+    const payload = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+
+    if (!response.ok) {
+      errors.push(
+        `${appleEnvironmentLabelForBaseUrl(baseUrl)}: ${
+          stringFrom(payload.errorMessage) || `Apple transaction lookup failed with status ${response.status}.`
+        }`
+      );
+      continue;
     }
-  });
-  const payload = (await response.json().catch(() => ({}))) as Record<string, unknown>;
 
-  if (!response.ok) {
-    throw new Error(stringFrom(payload.errorMessage) || `Apple transaction lookup failed with status ${response.status}.`);
+    const signedTransactionInfo = stringFrom(payload.signedTransactionInfo);
+
+    if (!signedTransactionInfo) {
+      errors.push(`${appleEnvironmentLabelForBaseUrl(baseUrl)}: Apple transaction lookup did not return signedTransactionInfo.`);
+      continue;
+    }
+
+    return decodeVerifiedAppleJwsPayload<AppleTransactionPayload>(signedTransactionInfo);
   }
 
-  const signedTransactionInfo = stringFrom(payload.signedTransactionInfo);
-
-  if (!signedTransactionInfo) {
-    throw new Error('Apple transaction lookup did not return signedTransactionInfo.');
-  }
-
-  return decodeVerifiedAppleJwsPayload<AppleTransactionPayload>(signedTransactionInfo);
+  throw new Error(errors.join(' ') || 'Apple transaction lookup failed.');
 }
 
 async function verifyGooglePlayReceipt(input: StoreBillingVerificationInput): Promise<StoreBillingVerificationResult> {
@@ -528,12 +543,39 @@ function getAppleBundleId() {
   return process.env.APPLE_APP_STORE_BUNDLE_ID || process.env.IOS_BUNDLE_ID || 'com.forg3.sign';
 }
 
-function getAppleApiBaseUrl() {
+function getAppleApiBaseUrls(preferredEnvironment?: string) {
   if (process.env.APPLE_APP_STORE_API_BASE_URL) {
-    return process.env.APPLE_APP_STORE_API_BASE_URL.replace(/\/$/, '');
+    return [process.env.APPLE_APP_STORE_API_BASE_URL.replace(/\/$/, '')];
   }
 
-  return process.env.APPLE_APP_STORE_ENVIRONMENT === 'production' ? appleProductionBaseUrl : appleSandboxBaseUrl;
+  const preferred = normalizeAppleEnvironment(preferredEnvironment);
+  const configured = normalizeAppleEnvironment(process.env.APPLE_APP_STORE_ENVIRONMENT) || 'sandbox';
+  const orderedEnvironments = [preferred, configured, configured === 'production' ? 'sandbox' : 'production'].filter(
+    (environment, index, environments): environment is 'sandbox' | 'production' =>
+      Boolean(environment) && environments.indexOf(environment) === index
+  );
+
+  return orderedEnvironments.map((environment) =>
+    environment === 'production' ? appleProductionBaseUrl : appleSandboxBaseUrl
+  );
+}
+
+function normalizeAppleEnvironment(value?: string) {
+  const normalized = stringFrom(value).toLowerCase();
+
+  if (normalized === 'production' || normalized === 'prod') {
+    return 'production';
+  }
+
+  if (normalized === 'sandbox' || normalized === 'xcode' || normalized === 'localtesting') {
+    return 'sandbox';
+  }
+
+  return '';
+}
+
+function appleEnvironmentLabelForBaseUrl(baseUrl: string) {
+  return baseUrl === appleProductionBaseUrl ? 'production' : baseUrl === appleSandboxBaseUrl ? 'sandbox' : baseUrl;
 }
 
 function getGooglePackageName() {

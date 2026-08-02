@@ -3,8 +3,8 @@ import { KeyRound, Loader2, LogOut, Send, ShieldCheck, Smartphone } from 'lucide
 import { BrandMark } from './BrandMark';
 import {
   AuthApiError,
+  canUseProviderAuth,
   checkDeviceSecurity,
-  firebaseConfigured,
   finishPendingProviderSignIn,
   loadFirebaseConfiguration,
   signIn,
@@ -31,7 +31,7 @@ export function AuthControls({
   const [busy, setBusy] = useState('');
   const [message, setMessage] = useState('');
   const [devCode, setDevCode] = useState('');
-  const [showProviderButtons, setShowProviderButtons] = useState(firebaseConfigured() || import.meta.env.DEV);
+  const [showProviderButtons, setShowProviderButtons] = useState(() => canUseProviderAuth());
 
   useEffect(() => {
     let active = true;
@@ -42,9 +42,10 @@ export function AuthControls({
           return;
         }
 
-        setShowProviderButtons(configured || import.meta.env.DEV);
+        const providerAuthAvailable = canUseProviderAuth(configured);
+        setShowProviderButtons(providerAuthAvailable);
 
-        if (!configured) {
+        if (!providerAuthAvailable) {
           return;
         }
 

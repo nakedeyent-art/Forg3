@@ -595,8 +595,8 @@ async function submitReviewPackage({ app, version, reviewDetail, ageRating, buil
 
 function appReviewNotes() {
   return [
-    'Forg3 is a secure e-signature app for PDF, Word, Excel, PowerPoint, and text documents. Review can sign in with the supplied email test account/code flow.',
-    'To locate In-App Purchases: launch Forg3, open the dashboard, tap Plans in the top bar, then review the Subscription section. Before sign-in the plan cards are visible but purchase buttons say Sign in to buy. After signing in and completing device verification, tap Forg3 Pro or Forg3 Business; the button opens the App Store sandbox purchase sheet.',
+    'Forg3 is a secure e-signature app for PDF, Word, Excel, PowerPoint, and text documents. Review should sign in with the supplied email test account/code flow. Native Google/Apple provider buttons are hidden in this iOS build until those native provider bridges are enabled and real-device tested.',
+    'To locate In-App Purchases: launch Forg3, sign in with the supplied review email/code account, complete device verification with the supplied code if prompted, tap Plans in the top bar, then review the Subscription section. Tap Forg3 Pro or Forg3 Business; the button opens the App Store sandbox purchase sheet.',
     `Terms of Use (EULA) is included in the App Store description: ${appleStandardEulaUrl}`,
     'The submitted Apple subscription product identifiers are com.forg3.sign.pro.monthly for Forg3 Pro and com.forg3.sign.business.monthly for Forg3 Business.',
     'New devices require device verification before account documents or recipient rooms open.',
