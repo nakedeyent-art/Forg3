@@ -25,6 +25,9 @@
     "play:track": "node scripts/configure-google-play-track.mjs",
     "store:monitor": "node scripts/monitor-store-review.mjs",
     "store:monitor:install": "node scripts/install-store-review-monitor-launchagent.mjs",
+    "ios:archive": "node scripts/archive-ios-release.mjs",
+    "ios:archive:upload": "node scripts/archive-ios-release.mjs --upload",
+    "ios:archives:status": "node scripts/archive-ios-release.mjs --status",
     "cap:sync": "npm run build && cap sync",
     "ios:open": "npm run cap:sync && cap open ios",
     "android:open": "npm run cap:sync && cap open android"

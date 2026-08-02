@@ -21,6 +21,13 @@ Last updated: 2026-08-02
 - App Store Connect app exists: `Forg3`, app id `6790994628`, bundle `com.forg3.sign`, SKU `com.forg3.sign`.
 - iOS version `1.0` build `5` was rejected on `2026-07-31` for Sign in with Apple/Google errors and subscription purchase errors on iPad Air 11-inch (M3), iPadOS 26.5.2.
 - Corrective build `6` was uploaded, processed as `VALID`, attached to iOS version `1.0`, and submitted in review package `50a817fa-7921-4679-8699-cb8219dee0b7` on `2026-08-02`. App Store Connect now reports iOS version `1.0` as `WAITING_FOR_REVIEW`.
+- Canonical local archive storage is `~/Library/Developer/Xcode/Archives`.
+  Organizer contains the recoverable original archives for builds `1`, `2`,
+  `3`, and `6`, with matching IPA exports under
+  `~/Library/Developer/Xcode/Archives/Forg3 Exports/1.0/`. Builds `4` and `5`
+  remain valid App Store Connect records but are marked remote-only because
+  their original local archives were not retained and cannot be downloaded
+  back from Apple.
 - Paid Apps Agreement, bank account, W-9, and Digital Services Act compliance are active.
 - App metadata is configured through API/UI: name, subtitle, privacy URL, description, keywords, support URL, screenshots, content-rights declaration, primary category `BUSINESS`, free app download pricing, and copyright `2026 NAK3D EYE ENTERPRISES`.
 - App Store screenshots are uploaded and asset-processed: 8 for `APP_IPHONE_67`, 8 for `APP_IPAD_PRO_3GEN_129`.
@@ -112,9 +119,25 @@ npm run appstore:submission status
 npm run appstore:submission configure
 npm run build:mobile:release
 npm run verify:mobile-release
+npm run ios:archive
+npm run ios:archive:upload
+npm run ios:archives:status
 npm run play:products
 npm run play:internal -- .deploy/mobile/<new-versioncode-release>.aab
 ```
+
+`npm run ios:archive` is the required iOS release path. It builds and syncs the
+production mobile assets, creates the signed `.xcarchive` directly under
+`~/Library/Developer/Xcode/Archives/<date>/` so it appears in Xcode Organizer,
+and exports the matching IPA under
+`~/Library/Developer/Xcode/Archives/Forg3 Exports/<version>/<build>/`.
+`npm run ios:archive:upload` performs the same retained archive/export flow and
+then uploads that exact archive to App Store Connect. Never upload an IPA built
+in `/tmp` or from an archive outside this canonical directory. Increment
+`CURRENT_PROJECT_VERSION` before every new upload; the command refuses to
+overwrite an existing build. The retained archive metadata is normalized to
+the product name `Forg3`, so Organizer never groups release archives under the
+Capacitor scheme's generic internal name `App`.
 
 For a different production origin:
 
