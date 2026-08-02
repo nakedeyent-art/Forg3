@@ -19,14 +19,14 @@ Last updated: 2026-08-02
 ## App Store Connect Status
 
 - App Store Connect app exists: `Forg3`, app id `6790994628`, bundle `com.forg3.sign`, SKU `com.forg3.sign`.
-- iOS version `1.0` was rejected on `2026-07-31` for Sign in with Apple/Google errors and subscription purchase errors on iPad Air 11-inch (M3), iPadOS 26.5.2.
-- Build `5` is uploaded and was the rejected binary. The corrective package is being prepared as iOS build `6`.
+- iOS version `1.0` build `5` was rejected on `2026-07-31` for Sign in with Apple/Google errors and subscription purchase errors on iPad Air 11-inch (M3), iPadOS 26.5.2.
+- Corrective build `6` was uploaded, processed as `VALID`, attached to iOS version `1.0`, and submitted in review package `50a817fa-7921-4679-8699-cb8219dee0b7` on `2026-08-02`. App Store Connect now reports iOS version `1.0` as `WAITING_FOR_REVIEW`.
 - Paid Apps Agreement, bank account, W-9, and Digital Services Act compliance are active.
 - App metadata is configured through API/UI: name, subtitle, privacy URL, description, keywords, support URL, screenshots, content-rights declaration, primary category `BUSINESS`, free app download pricing, and copyright `2026 NAK3D EYE ENTERPRISES`.
 - App Store screenshots are uploaded and asset-processed: 8 for `APP_IPHONE_67`, 8 for `APP_IPAD_PRO_3GEN_129`.
 - App Store age-rating answers are configured through the App Store Connect API: user-generated content is disclosed, and objectionable-content/web-access/gambling/chat/advertising answers are set to none/false.
-- App Review detail/contact, reviewer notes, and demo account are configured. Build `5` declares `usesNonExemptEncryption=false`; the iOS shell includes `ITSAppUsesNonExemptEncryption=false`. Apple rejected build `5` because Sign in with Apple/Google errored and the subscription purchase attempt errored in sandbox review. The corrective build hides native Google/Apple provider buttons unless native provider auth is explicitly enabled and uses the supplied email-code review account as the supported review sign-in path. Apple StoreKit transaction verification now uses the StoreKit transaction environment to try the correct App Store Server API endpoint before failing over.
-- Apple subscription group `Forg3 Plans` exists with group localization. `Forg3 Pro` and `Forg3 Business` have Apple-equalized pricing across 175 territories and subscription review screenshots. Apple returned both subscriptions because the associated app was rejected; they must be resubmitted with the corrected app build.
+- App Review detail/contact, reviewer notes, and demo account are configured. Build `6` declares `usesNonExemptEncryption=false`; the iOS shell includes `ITSAppUsesNonExemptEncryption=false`. The corrective build hides native Google/Apple provider buttons unless native provider auth is explicitly enabled and uses the supplied email-code review account as the supported review sign-in path. Apple StoreKit transaction verification now uses the StoreKit transaction environment to try the correct App Store Server API endpoint before failing over.
+- Apple subscription group `Forg3 Plans` exists with group localization. `Forg3 Pro` and `Forg3 Business` have Apple-equalized pricing across 175 territories and subscription review screenshots. Both subscriptions were resubmitted with build `6` and now report `WAITING_FOR_REVIEW`.
 - `Forg3 Pay Per Signature` is also configured in App Store Connect, but it remains hidden from the first native mobile launch until the per-signature usage model is packaged as store-managed credits or another approved model.
 
 ## Store Description

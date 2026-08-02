@@ -1,6 +1,6 @@
 Hello App Review,
 
-Thank you for reviewing Forg3. We fixed the two issues reported against version 1.0 build 5.
+Thank you for reviewing Forg3. We fixed the two issues reported against version 1.0 build 5 and submitted the corrected package as build 6.
 
 The iOS review build now uses the supplied email-code review account as the supported sign-in path. Native Google/Apple provider buttons are hidden until those native provider bridges are enabled and real-device tested, so reviewers will not be routed into the failing provider flow.
 
