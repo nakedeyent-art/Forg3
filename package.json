@@ -11,6 +11,7 @@
     "start": "node dist-server/server/index.js",
     "preview": "npm run build && npm run start",
     "typecheck": "tsc -p tsconfig.app.json --noEmit && tsc -p tsconfig.server.json --noEmit",
+    "repo:boundary": "node scripts/check-repository-boundary.mjs",
     "smoke": "node scripts/smoke.mjs",
     "monitor:production": "node scripts/monitor-production.mjs",
     "verify:mobile-release": "node scripts/verify-mobile-release-assets.mjs",
